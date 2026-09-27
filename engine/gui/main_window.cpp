@@ -454,6 +454,9 @@ void MainWindow::setupTray()
     tray_->setToolTip(QStringLiteral("MixCast"));
 
     auto* menu = new QMenu(this);
+    auto* version = menu->addAction(QStringLiteral("MixCast %1").arg(QCoreApplication::applicationVersion()));
+    version->setEnabled(false);
+    menu->addSeparator();
     menu->addAction(QStringLiteral("Show MixCast"), this, [this] { showNormal(); raise(); activateWindow(); });
     trayMute_ = menu->addAction(QStringLiteral("Mute mic"));
     trayMute_->setCheckable(true);

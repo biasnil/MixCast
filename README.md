@@ -155,6 +155,10 @@ To reset MixCast completely, close it (tray icon → Quit) and delete that folde
 |---|---|
 | `engine/` | The mixer, the desktop app (`mixcast.exe`) and the console version (`mixcast-cli.exe`) |
 | `MixCast-driver/` | Optional. MixCast's own virtual cable driver. You don't need it if you use VB-CABLE. |
+| `release/` | Packaging for releases: `package.ps1` (zip + installer), `MixCast.iss` (installer), `TESTING.md` (how to test and publish) |
+
+## Licence
+MixCast is released under the MIT License (`LICENSE`). The third-party parts (Qt, the Microsoft C++ runtime, and VB-CABLE, which is not included) are listed in `THIRD-PARTY-NOTICES.txt`.
 
 ## About VB-CABLE
 VB-CABLE is made by VB-Audio Software and is **not included** in MixCast. Everyone downloads it themselves from vb-audio.com. If you share MixCast with others, point them to that page instead of bundling the installer, because VB-Audio's licence covers redistribution. If you find it useful, consider supporting VB-Audio with a donation.

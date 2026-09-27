@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
-project(MixCast VERSION 0.3 LANGUAGES CXX)
+project(MixCast VERSION 1.0.0 LANGUAGES CXX)
+
+# Shown in mixcast.exe's properties and the installer.
+set(MIXCAST_PUBLISHER "Iven" CACHE STRING "Name shown as publisher/copyright holder")
 
 option(MIXCAST_BUILD_GUI "Build the Qt 6 desktop app" ON)
 
@@ -9,6 +12,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT WIN32)
     message(FATAL_ERROR "MixCast is Windows-only (WASAPI).")
 endif()
+
+# Resource compiler for the app icon/version info (MSVC's rc or MinGW's windres).
+enable_language(RC)
 
 # ---- Core engine (reused by the Qt GUI in the next step) -------------------
 add_library(mixcast_core STATIC
@@ -62,6 +68,12 @@ if(MIXCAST_BUILD_GUI)
         gui/soundboard_page.h gui/soundboard_page.cpp
         gui/main_window.h    gui/main_window.cpp
     )
+    # App icon + version info.
+    set(MIXCAST_ICON_PATH "${CMAKE_CURRENT_SOURCE_DIR}/gui/mixcast.ico")
+    configure_file(gui/mixcast.rc.in ${CMAKE_CURRENT_BINARY_DIR}/mixcast.rc @ONLY)
+    target_sources(mixcast PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/mixcast.rc)
+    target_compile_definitions(mixcast PRIVATE MIXCAST_VERSION="${PROJECT_VERSION}")
+
     target_include_directories(mixcast PRIVATE gui)
     target_link_libraries(mixcast PRIVATE mixcast_core Qt6::Widgets)
 

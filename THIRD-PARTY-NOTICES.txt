@@ -1,0 +1,50 @@
+MixCast - third-party notices
+=============================
+
+MixCast itself is released under the MIT License (see LICENSE.txt).
+It uses the following components made by others.
+
+
+1. Qt 6 (The Qt Company Ltd. and contributors)
+----------------------------------------------
+Used under the GNU Lesser General Public License version 3 (LGPLv3).
+
+- MixCast uses Qt, unmodified, as separate DLL files (Qt6Core.dll,
+  Qt6Gui.dll, Qt6Widgets.dll and the plugin folders next to mixcast.exe).
+- You may replace these DLLs with your own build of the same Qt version;
+  MixCast will use them.
+- Qt source code: https://download.qt.io/official_releases/qt/
+  (or ask the MixCast author for a copy of the exact version used).
+- Licence texts: licenses\LGPL-3.0.txt and licenses\GPL-3.0.txt
+  (the LGPLv3 builds on the GPLv3, so both are included).
+- Qt includes further third-party code; see
+  https://doc.qt.io/qt-6/licenses-used-in-qt.html
+
+
+2. Microsoft Visual C++ Runtime
+-------------------------------
+vcruntime140*.dll, msvcp140*.dll and related files are Microsoft
+"Redistributable Code", included under the Microsoft Visual Studio
+licence terms.
+
+
+3. Windows components (not included)
+------------------------------------
+Audio capture/playback (WASAPI) and file decoding/encoding (Media
+Foundation) are part of Windows and are not shipped with MixCast.
+
+
+4. VB-CABLE (not included)
+--------------------------
+MixCast sends audio through VB-CABLE, a separate product by VB-Audio
+Software (https://vb-audio.com/Cable/). It is not bundled with MixCast;
+users download and install it themselves. VB-CABLE is donationware:
+please support VB-Audio if you find it useful.
+
+
+5. MixCast driver (source code only, not in the app download)
+-------------------------------------------------------------
+The optional MixCast-driver folder in the source code is derived from
+Microsoft's Windows-driver-samples "SimpleAudioSample", used under the
+Microsoft Public License (MS-PL). The original copyright notices are
+kept in those source files.
