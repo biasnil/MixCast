@@ -109,6 +109,25 @@ QPushButton#StripBtn:focus   { border-color: #B4F2D3; }
 QPushButton#StripBtn:checked { background: #6EDBA6; border-color: #6EDBA6; color: #12241B; }
 QPushButton#StripBtn:checked:hover { background: #8FE6BC; }
 QPushButton#StripBtn[power="true"]:!checked { color: #F2645A; border-color: #F2645A; }
+QPushButton#StripBtn[solo="true"]:checked { background: #F5D25E; border-color: #F5D25E; color: #2A2410; }
+QPushButton#StripBtn:disabled { color: #4E616E; border-color: #33434F; background: transparent; }
+
+/* Soundboard page tabs. */
+QPushButton#PageTab {
+    background: transparent; border: 1.5px solid #3C4D5A; border-radius: 12px;
+    padding: 3px 12px; color: #A9BAC4; font-size: 8.5pt; font-weight: 700;
+}
+QPushButton#PageTab:hover   { border-color: #B4F2D3; color: #FFFFFF; }
+QPushButton#PageTab:checked { background: #6EDBA6; border-color: #6EDBA6; color: #12241B; }
+
+/* Small pickers inside info panels (output B device). */
+QToolButton#PanelPick {
+    background: #24313B; border: 1px solid #3C4D5A; border-radius: 5px;
+    padding: 2px 6px; color: #E2EAEE; font-size: 8pt; font-weight: 700;
+}
+QToolButton#PanelPick:hover { border-color: #6EDBA6; }
+QToolButton#PanelPick::menu-indicator { image: none; width: 0; }
+QLabel#SoloNote { color: #F5D25E; font-size: 7.5pt; font-weight: 700; letter-spacing: 1px; }
 
 /* Preset picker inside the mic's info panel. */
 QToolButton#NoiseBtn {

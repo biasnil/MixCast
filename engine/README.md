@@ -30,6 +30,8 @@ MixCast/
         ├── voice_profile.h/.cpp    what the mic has learned about your voice
         ├── sound_dictionary.h/.cpp remove keyboard & clicks (learned NMF dictionaries)
         ├── mic_presets.h           Natural / Clean / Studio / Noisy room
+        ├── voice_effects.h/.cpp    Deep, Chipmunk, Robot, Radio, Echo, Reverb
+        ├── channel_dsp.h/.cpp      per-channel settings, tone, pan, width
         ├── soundboard.h/.cpp       built-in soundboard: voices, resampler, headphone monitor
         ├── audio_decoder.h/.cpp    MP3/WAV/M4A/WMA/FLAC decoding (Windows Media Foundation)
         ├── audio_encoder.h/.cpp    WAV writer + MP3/M4A export (Windows' built-in encoders)
@@ -72,27 +74,49 @@ The build copies Qt's DLLs next to `mixcast.exe` with `windeployqt`, so you can 
 
 ## Desktop app (mixcast.exe)
 - **Microphone picker (top):** choose which mic your voice comes from, or *No microphone*. The red dot shows when you're live; hover over it to see which device Discord should use.
-- **Channel strips:** one for your mic, plus one per app. Each strip has:
-  - an LED meter
-  - a fader: drag, scroll, or use the arrow keys; double-click resets it to 0 dB
-  - **On/Off**
-  - **Duck** on app strips: lower this app while you talk
-  - **✕** to remove the app
-- **Talking lamp:** the mic strip's lamp lights red whenever your voice is detected.
+- **Channel strips:** one for your mic, the soundboard, and one per app, side by side like a mixing desk. Top to bottom, each has:
+  - a header (MIC, SOUNDBOARD, APP) with the device or app name under it, and **✕** to remove an app
+  - an info panel: on the mic, the **Sound** preset, the **FX** voice effect and the clean-up display; on the soundboard and apps, **Bass / Mid / High** tone knobs and a **Pan** bar
+  - a big gain readout (coral above 0 dB)
+  - an LED meter, the channel's buttons, and a pill fader: drag, scroll, or use the arrow keys; double-click resets it to 0 dB
+- **Channel buttons:** **ON** (coral **OFF** when switched off), **A** and **B** (which outputs it goes to, see below), **SOLO**, plus **DUCK** on apps (lower this app while you talk) and **PADS** on the soundboard.
+- **Talking lamp:** the dot in the mic's header lights red whenever your voice is detected.
 - **+ Add app:** pick from apps that are playing sound, or browse for an .exe that isn't running yet. That app joins the mix automatically when it starts.
 - **Send to (top):** picks the virtual cable. The output strip names the device Discord should use.
-- **Output strip:** shows exactly what Discord hears, with a master fader.
+- **Output strip:** shows exactly what Discord hears, with a master fader, and where **Output B** goes, with its own level.
 - **Bottom bar:** *Auto-duck* on/off, how much to lower apps, and voice sensitivity.
 - **Saved settings:** your mic, apps, levels and ducking settings are saved and restored the next time you open MixCast. See *Where MixCast saves things* below.
 - **Live indicator (top right):** red **Live** while something is switched on, grey **All off** when your mic, every app and the soundboard are all off (Discord hears silence).
 - **Closing the window** keeps MixCast mixing in the system tray. Right-click the tray icon to mute your mic or quit.
 
+## Two outputs, tone and pan
+Like a broadcast desk, MixCast has two outputs:
+
+| Output | Where it goes | Typical use |
+|---|---|---|
+| **A** | The virtual cable (**Send to** at the top) | What Discord hears |
+| **B** | Chosen in the Output strip: **Your headphones** (follows your Windows default), any playback device, or **Off** | Hearing yourself, checking a channel, or a second mix for OBS on another virtual cable |
+
+- **A and B buttons:** every channel picks where it goes. By default everything goes to A and nothing to B. Example: put your music on A and B but the soundboard only on A, then point B at a second cable for OBS, and your stream gets the music without the meme sounds.
+- **Hear yourself:** press **B** on the mic strip and set Output B to your headphones.
+- **SOLO:** listen to one channel alone on Output B, at its fader level and without ducking, to check how it sounds. Several can be soloed at once. What Discord hears never changes. The Output strip shows **SOLO ON B** while any channel is soloed.
+- **Why not B for everything?** An app you add still plays on your headphones as usual; MixCast captures a copy. So sending it to headphones on B would play it twice. B is for the mic, for checking channels, or for a second cable.
+- **Tone:** **Bass** (shelf at 120 Hz), **Mid** (1 kHz) and **High** (shelf at 6 kHz), each ±12 dB. Drag a knob up or down, or scroll; double-click resets it. A mint arc means boost, coral means cut.
+- **Pan:** drag the bar to move a channel left or right; double-click to centre it. Right-click it for **stereo width**: Mono, Narrow, Normal, Wide or Extra wide.
+- Tone, pan and width apply to both outputs. At their middle settings the sound passes through untouched.
+
 ## Soundboard
 The **Soundboard** tab is a built-in Soundpad. Sounds go straight into your mix, so Discord hears them on CABLE Output alongside your voice.
 
 - **Adding sounds:** press **Add sounds**, or drag files onto the tab. MP3, WAV, M4A/AAC, WMA and FLAC all work, up to 10 minutes each.
-- **Playing:** click a pad to play it, and click again to stop. The pad fills with amber as it plays.
-- **Pad options:** right-click a pad to set a **hotkey**, change its **volume**, rename it, or remove it.
+- **Playing:** click a pad to play it, and click again to stop. The pad fills with mint as it plays.
+- **Pad options:** right-click a pad to set a **hotkey**, change its **volume**, rename it, or remove it. Also:
+  - **Loop:** keeps playing from the start until you stop it (marked ↻).
+  - **Fade out when stopped:** quickly, over half a second, or over two seconds. Restarting a pad always cuts the old one quickly.
+  - **Colour:** a coloured stripe and tint, to find pads at a glance.
+  - **Page:** put it on a page.
+- **Pages:** group pads, e.g. *Memes*, *Music*, *Game*. The tabs above the pads show **All** or one page; **+ Page** makes a new one. Right-click a page tab to rename or delete it (its pads stay, under All).
+- **Reorder:** drag a pad onto another pad to move it there, or onto a page tab to move it to that page.
 - **Global hotkeys:** hotkeys work everywhere, even inside a fullscreen game. Pressing a hotkey always restarts its sound. Use keys you don't type with, like the numpad, F13–F24, or Ctrl/Alt combinations, because Windows gives the key to MixCast while it's bound. There's also a **Stop key** that stops everything.
 - **One sound at a time:** a new sound stops whatever is playing.
 - **Hear it myself:** plays the sounds on your own headphones as well, with a separate volume that others don't hear. It follows your Windows default playback device.
@@ -152,7 +176,7 @@ The **Sound** button on the mic strip picks a preset: **Natural**, **Clean** (de
 
 Every setting can still be changed on its own under **Sound → Advanced**. The button then shows **Custom**. The settings affect only your mic; apps are never filtered.
 
-The small display under the mic's name shows the clean-up live, in 20 bands from low to high pitch. Amber is your voice that's kept; red above it is background and clicks being removed, with the total in dB at the top right.
+The small display in the mic's info panel shows the clean-up live, in 20 bands from low to high pitch. Green is your voice that's kept; red above it is background and clicks being removed, with the total in dB at the top right.
 
 | Setting | Options | What it does |
 |---|---|---|
@@ -196,6 +220,20 @@ Keep Discord's own Noise Suppression **off** when you use MixCast's, so the two 
 | High + Firm gate | −30.2 dB | −0.4 dB |
 
 With every feature off, the output is bit-identical to the input, just 12 ms later.
+
+## Voice effects
+The **FX** button in the mic's panel adds a fun effect. Everyone hears it, so it's for fun with friends rather than meetings.
+
+| Effect | What it does |
+|---|---|
+| **Deep** | Pitch down 5 semitones |
+| **Chipmunk** | Pitch up 7 semitones |
+| **Robot** | A buzzy, metallic monotone (a 110 Hz comb with a little ring modulation) |
+| **Radio** | Walkie-talkie: only 500 Hz – 3 kHz, overdriven and squashed |
+| **Echo** | Repeats every 320 ms, each a little darker |
+| **Reverb** | A room around your voice |
+
+The pitch effects splice your voice at a different speed in 30 ms grains, which adds about 15 ms of delay. Switching effects crossfades, so it never clicks, and **No effect** leaves your voice exactly as it was. The effect comes after the clean-up and before the radio voice chain, so the limiter still catches anything it makes louder. Every effect is level-matched to within 2 dB of your normal voice.
 
 ## Radio voice
 Radio stations run a voice through six stages: high-pass, downward expander, de-esser, EQ, compressor, limiter. MixCast already does the first two as **Cut low rumble** and **Silence between words**. **Sound → Advanced → Radio voice** adds the other four, in that order, after the clean-up:
@@ -309,6 +347,7 @@ In Discord, set **Settings → Voice & Video → Input Device** to **CABLE Outpu
 | `h` | Clean while I talk on/off |
 | `b` | Remove keyboard & clicks on/off |
 | `s` | Next mic sound preset (Natural / Clean / Studio / Noisy room) |
+| `e` | Next voice effect |
 | `q` | Quit |
 
 - **Ducking:** apps marked **ducks** get quieter while you talk (music, games). Apps marked **no-duck** stay at full level (Soundpad, sound effects).

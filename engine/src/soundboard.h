@@ -20,7 +20,7 @@
 
 namespace mixcast {
 
-struct SourceControls;   // mix_engine.h
+struct SourceControls;   // channel_dsp.h
 
 // A decoded sound: 48 kHz, stereo, interleaved 16-bit (half the memory of float).
 struct Clip
@@ -80,9 +80,11 @@ public:
     ClipId AddClip(std::shared_ptr<const Clip> clip, float gainDb = 0.0f);
     void   RemoveClip(ClipId id);
     void   SetClipGain(ClipId id, float gainDb);
+    // Loop until stopped; how long stopping fades out (0 = a quick 12 ms).
+    void   SetClipOptions(ClipId id, bool loop, float fadeOutSec);
 
     void   Play(ClipId id);      // restarts if already playing
-    void   Stop(ClipId id);      // short fade, no click
+    void   Stop(ClipId id);      // fades out over the pad's fade-out time
     void   Toggle(ClipId id);
     void   StopAll();
 
@@ -104,7 +106,13 @@ public:
     void   Render(float* out, size_t frames);
 
 private:
-    struct Entry { std::shared_ptr<const Clip> clip; float gain = 1.0f; };
+    struct Entry
+    {
+        std::shared_ptr<const Clip> clip;
+        float gain = 1.0f;
+        bool  loop = false;
+        float fadeStep = 0.0f;   // per frame when stopped; 0 = quick
+    };
     struct Voice
     {
         ClipId                      id = 0;
@@ -113,6 +121,8 @@ private:
         float                       gain = 1.0f;
         float                       fade = 1.0f;
         bool                        stopping = false;
+        bool                        loop = false;
+        float                       fadeStep = 0.0f;   // set when stopping
     };
 
     mutable std::mutex                       mu_;       // clips_, voices_, retired_

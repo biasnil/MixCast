@@ -78,6 +78,55 @@ private:
     bool lit_ = false;
 };
 
+// Small rotary knob, value in tenths of a dB (-120..+120 = -12..+12 dB).
+// Drag up/down or scroll; double-click resets to 0. The arc lights from the
+// top (0) towards the value; the value is printed in the middle.
+class Knob : public QAbstractSlider
+{
+    Q_OBJECT
+public:
+    explicit Knob(const QString& label, QWidget* parent = nullptr);
+    QSize sizeHint() const override { return { 34, 44 }; }
+
+protected:
+    void paintEvent(QPaintEvent*) override;
+    void mousePressEvent(QMouseEvent*) override;
+    void mouseMoveEvent(QMouseEvent*) override;
+    void mouseReleaseEvent(QMouseEvent*) override;
+    void mouseDoubleClickEvent(QMouseEvent*) override;
+
+private:
+    QString label_;
+    bool    dragging_ = false;
+    int     dragStartY_ = 0, dragStartValue_ = 0;
+};
+
+// Balance bar: -100 (left) .. +100 (right), dot on a short track. Drag or
+// scroll; double-click centres it. Right-click picks the stereo width.
+class PanBar : public QAbstractSlider
+{
+    Q_OBJECT
+public:
+    explicit PanBar(QWidget* parent = nullptr);
+    QSize sizeHint() const override { return { 108, 16 }; }
+    void  setWidthValue(float width);            // shown as a note when not normal
+
+signals:
+    void widthChosen(float width);
+
+protected:
+    void paintEvent(QPaintEvent*) override;
+    void mousePressEvent(QMouseEvent*) override;
+    void mouseMoveEvent(QMouseEvent*) override;
+    void mouseDoubleClickEvent(QMouseEvent*) override;
+    void contextMenuEvent(QContextMenuEvent*) override;
+
+private:
+    QRectF track() const;
+    int    valueAt(double x) const;
+    float  width_ = 1.0f;
+};
+
 // What the mic clean-up is doing, live: one column per frequency band.
 // Green = your voice that's kept; red above it = background and clicks removed.
 class CleanupScope : public QWidget
@@ -113,7 +162,12 @@ public:
     void  setHotkey(const QString& label)   { hotkey_ = label; update(); }
     void  setState(State s, const QString& detail = {});
     void  setProgress(float p);             // < 0 = not playing
+    void  setColour(const QColor& c)        { colour_ = c; update(); }   // invalid = none
+    void  setLooping(bool on)               { looping_ = on; update(); }
+    void  setDragId(int id)                 { dragId_ = id; }            // enables drag to reorder
     QSize sizeHint() const override { return { 172, 88 }; }
+
+    static constexpr const char* kMime = "application/x-mixcast-pad";
 
 signals:
     void menuRequested(const QPoint& globalPos);
@@ -121,9 +175,15 @@ signals:
 protected:
     void paintEvent(QPaintEvent*) override;
     void contextMenuEvent(QContextMenuEvent* e) override;
+    void mousePressEvent(QMouseEvent* e) override;
+    void mouseMoveEvent(QMouseEvent* e) override;
 
 private:
     QString name_, hotkey_, detail_;
     State   state_ = State::Loading;
     float   progress_ = -1.0f;
+    QColor  colour_;
+    bool    looping_ = false;
+    int     dragId_ = -1;
+    QPoint  pressPos_;
 };

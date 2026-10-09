@@ -298,6 +298,7 @@ int wmain(int argc, wchar_t** argv)
                 case 'v': case 'V': engine.controls.voice.autoLevel = !engine.controls.voice.autoLevel; break;
                 case 'h': case 'H': engine.controls.voice.cleanWhileTalking = !engine.controls.voice.cleanWhileTalking; break;
                 case 'b': case 'B': engine.controls.voice.removeClicks = !engine.controls.voice.removeClicks; break;
+                case 'e': case 'E': engine.controls.voice.voiceFx = (engine.controls.voice.voiceFx + 1) % FxCount; break;
                 case 's': case 'S':   // next mic sound preset
                 {
                     const int now = MatchMicPreset(engine.controls.voice);
@@ -358,7 +359,8 @@ int wmain(int argc, wchar_t** argv)
                 static const char* kGate[]  = { "off", "gentle", "firm", "voice only" };
                 const auto& v = engine.controls.voice;
                 const int preset = MatchMicPreset(v);
-                std::snprintf(buf, sizeof(buf), "  MIC SOUND     %s", preset >= 0 ? MicPresetInfo(preset).name : "Custom");
+                std::snprintf(buf, sizeof(buf), "  MIC SOUND     %s   effect: %s", preset >= 0 ? MicPresetInfo(preset).name : "Custom",
+                              VoiceFxName(v.voiceFx.load()));
                 line(buf);
                 std::snprintf(buf, sizeof(buf), "  MIC CLEAN-UP  noise %s  gate %s  rumble filter %s  (background %.0f dB)",
                               kNoise[v.noiseLevel.load() & 3], kGate[std::min(v.gateMode.load(), 3)],
@@ -385,7 +387,7 @@ int wmain(int argc, wchar_t** argv)
             line("  n noise suppression  g gate (off/gentle/firm/voice only)  r rumble filter");
             line("  p radio voice (de-esser, EQ, compressor, limiter) on/off");
             line("  l learn my voice  v auto level  h clean while I talk  b remove keyboard & clicks");
-            line("  s mic sound preset (natural / clean / studio / noisy room)");
+            line("  s mic sound preset (natural / clean / studio / noisy room)  e voice effect");
             drawn = lines;
 
             std::this_thread::sleep_for(std::chrono::milliseconds(60));

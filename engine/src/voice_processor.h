@@ -10,7 +10,8 @@
 //                       "Voice only" mode opens only for voiced speech
 //                       (pitch detected by autocorrelation), so chewing,
 //                       clicks and bumps stay muted even when they're loud.
-//   4. Voice polish     de-esser, voice EQ, compressor, limiter (voice_polish.h)
+//   4. Voice effect     Deep, Chipmunk, Robot, Radio, Echo, Reverb (voice_effects.h)
+//   5. Voice polish     de-esser, voice EQ, compressor, limiter (voice_polish.h)
 //
 // "Learn my voice" (voice_profile.h) builds a profile from moments it's sure
 // are you talking and uses it to:
@@ -40,6 +41,7 @@
 #include <mutex>
 
 #include "sound_dictionary.h"
+#include "voice_effects.h"
 #include "voice_polish.h"
 #include "voice_profile.h"
 
@@ -62,6 +64,7 @@ struct VoiceSettings
     std::atomic<bool>  autoLevel{false};
     std::atomic<bool>  cleanWhileTalking{false};
     std::atomic<bool>  removeClicks{false};
+    std::atomic<int>   voiceFx{FxNone};          // fun effect (voice_effects.h)
 
     // Published by the processor (read-only for the UI).
     std::atomic<float> noiseFloorDb{-90.0f};   // estimated background level
@@ -214,7 +217,8 @@ private:
     float combT_ = 0.0f, combTargetT_ = 0.0f;
     float bandSnrDb_ = 0.0f;              // voice band (300-3400 Hz) level over the noise
 
-    VoicePolish polish_;
+    VoicePolish  polish_;
+    VoiceEffects fx_;
 };
 
 } // namespace mixcast

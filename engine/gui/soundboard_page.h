@@ -61,6 +61,7 @@ signals:
 
 protected:
     void dragEnterEvent(QDragEnterEvent* e) override;
+    void dragMoveEvent(QDragMoveEvent* e) override;
     void dropEvent(QDropEvent* e) override;
     void resizeEvent(QResizeEvent* e) override;
 
@@ -75,6 +76,10 @@ private:
         bool              loading = true;
         QString           error;
         SoundPad*         pad = nullptr;
+        bool              loop = false;
+        float             fadeOutSec = 0.0f;   // 0 = quick
+        int               colour = 0;          // 0 = none, else kPadColours
+        QString           page;                // "" = not on a page
     };
 
     void   addFiles(const QStringList& paths);
@@ -90,6 +95,10 @@ private:
     void   updateStopAllLabel();
     Entry* find(int key);
     void   changed();
+    void   applyPadOptions(Entry& e);          // loop/fade to the engine, colour/loop to the pad
+    void   rebuildPageBar();
+    void   showPageMenu(const QString& page, const QPoint& globalPos);
+    bool   dropPad(int key, const QPoint& pos); // reorder or move to a page
 
     static int HotkeyIdFor(int key) { return 1000 + key; }
     static constexpr int kStopAllHotkeyId = 1;
@@ -113,4 +122,9 @@ private:
     QPushButton*  monitorBtn_  = nullptr;
     QSlider*      monitorVol_  = nullptr;
     QLabel*       monitorLbl_  = nullptr;
+
+    // Pages: "" shows every pad.
+    QStringList   pages_;
+    QString       currentPage_;
+    QWidget*      pageBar_     = nullptr;
 };

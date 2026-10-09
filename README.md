@@ -71,8 +71,11 @@ The same idea works in OBS, Zoom and other apps: pick **CABLE Output** as the mi
   - **Studio:** Clean, plus a broadcast-style voice: softer "s", clearer tone, even and steady level.
   - **Noisy room:** only your voice opens the mic, and keyboard and clicks are removed.
 
-  MixCast also learns your voice as you talk, separately for each mic. After about a minute, only your own voice ducks apps. The small display on the mic strip shows what's being removed: amber is your voice, red is noise. Every individual setting is under **Sound → Advanced**.
-- **Soundboard:** on the **Soundboard** tab press **Add sounds**, then right-click a pad to give it a hotkey.
+  MixCast also learns your voice as you talk, separately for each mic. After about a minute, only your own voice ducks apps. The small display on the mic strip shows what's being removed: green is your voice, red is noise. Every individual setting is under **Sound → Advanced**.
+- **Voice effects:** the **FX** button next to **Sound** gives you Deep, Chipmunk, Robot, Radio, Echo or Reverb.
+- **Tone and pan:** each app and the soundboard have **Bass / Mid / High** knobs and a **Pan** bar.
+- **Two outputs:** every channel has **A** (Discord) and **B** buttons. Set **Output B** in the Output strip to your headphones to hear yourself, or to a second cable for OBS. **SOLO** lets you hear one channel alone on B.
+- **Soundboard:** on the **Soundboard** tab press **Add sounds**, then right-click a pad to give it a hotkey, a colour, a page, a loop or a fade-out. Drag pads to reorder them.
 - **Edit a sound:** right-click a pad and choose **Edit…**, trim it on the **Editor** tab, then press **Save to pad**.
 
 That's it: you're set up. Everything below explains how it works and the other options.

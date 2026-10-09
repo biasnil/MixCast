@@ -34,6 +34,8 @@ MixEngine::MixEngine(std::wstring outputDeviceId, int latencyMs)
 MixEngine::~MixEngine()
 {
     Stop();
+    bLive_ = false;
+    outputB_.reset();
     if (stopEvent_) CloseHandle(stopEvent_);
 }
 
@@ -119,8 +121,49 @@ SourceId MixEngine::ReplaceMic(std::unique_ptr<CaptureSource> newMic)
     return id;
 }
 
+// ---------------------------------------------------------------------------
+// Output B
+// ---------------------------------------------------------------------------
+void MixEngine::SetOutputB(const std::wstring& deviceId)
+{
+    if (deviceId == outputBWanted_ && (outputB_ || deviceId.empty())) return;
+    outputBWanted_ = deviceId;
+    bLive_ = false;
+    outputB_.reset();
+    UpdateOutputB();
+}
+
+bool MixEngine::OutputBActive() const
+{
+    return outputB_ && !outputB_->Failed();
+}
+
+void MixEngine::UpdateOutputB()
+{
+    if (outputBWanted_.empty()) return;
+
+    std::wstring id = outputBWanted_;
+    if (id == L"default")
+    {
+        std::optional<Endpoint> speakers;
+        try { speakers = DefaultRealSpeakers(); } catch (...) {}
+        if (!speakers) { bLive_ = false; outputB_.reset(); return; }
+        id = speakers->id;
+    }
+
+    // (Re)open when missing, failed, or the default headphones changed.
+    if (outputB_ && !outputB_->Failed() && outputB_->DeviceId() == id) return;
+    bLive_ = false;
+    outputB_.reset();
+    outputB_ = std::make_unique<MonitorOutput>(id, ringB_);
+    outputB_->Start();
+    bLive_ = true;
+}
+
 void MixEngine::Maintain()
 {
+    UpdateOutputB();
+
     // Find app sources whose process has closed.
     std::vector<std::shared_ptr<Input>> closed;
     {
@@ -238,9 +281,8 @@ void MixEngine::RunRender()
     MC_CHECK(client->GetService(IID_PPV_ARGS(&render)));
 
     micBuf_.assign(static_cast<size_t>(bufferFrames) * kChannels, 0.0f);
-    appBuf_.assign(micBuf_.size(), 0.0f);
-    freeBuf_.assign(micBuf_.size(), 0.0f);
-    tmpBuf_.assign(micBuf_.size(), 0.0f);
+    for (auto* b : { &appBuf_, &freeBuf_, &tmpBuf_, &micB_, &appB_, &freeB_, &soloB_, &outB_ })
+        b->assign(micBuf_.size(), 0.0f);
 
     // Pre-fill with silence so the first period doesn't glitch.
     BYTE* data = nullptr;
@@ -281,11 +323,35 @@ void MixEngine::RunRender()
 void MixEngine::Mix(float* out, size_t n)
 {
     const size_t samples = n * kChannels;
+    const bool   feedB   = bLive_.load(std::memory_order_relaxed);
 
-    // Three buses: mic (drives ducking), duckable apps, non-duckable apps.
-    std::fill(micBuf_.begin(),  micBuf_.begin()  + samples, 0.0f);
-    std::fill(appBuf_.begin(),  appBuf_.begin()  + samples, 0.0f);
-    std::fill(freeBuf_.begin(), freeBuf_.begin() + samples, 0.0f);
+    // Buses, for A and for B: mic (drives ducking), duckable apps, the rest.
+    for (auto* b : { &micBuf_, &appBuf_, &freeBuf_, &micB_, &appB_, &freeB_, &soloB_ })
+        std::fill(b->begin(), b->begin() + samples, 0.0f);
+
+    // Any channel soloed? Then B plays only the soloed ones.
+    bool solo = false;
+    for (auto& in : inputs_) solo = solo || (in->ctl.solo && in->ctl.enabled);
+    Soundboard* sb = soundboard_.load();
+    if (sb) solo = solo || (sb->Bus().solo && sb->Bus().enabled);
+
+    double micSumSq = 0.0;
+
+    // One channel, already at its fader level in tmpBuf_: tone, pan, width,
+    // meter, then into the buses it's sent to.
+    auto route = [&](SourceControls& c, ChannelDsp& dsp, float* busA, float* busB) {
+        dsp.Process(tmpBuf_.data(), n, c);
+        float pk = 0.0f;
+        for (size_t i = 0; i < samples; i++) pk = std::max(pk, std::fabs(tmpBuf_[i]));
+        c.peak.store(pk, std::memory_order_relaxed);
+
+        if (c.sendA)
+            for (size_t i = 0; i < samples; i++) busA[i] += tmpBuf_[i];
+        if (!feedB) return;
+        float* b = solo ? (c.solo ? soloB_.data() : nullptr) : (c.sendB ? busB : nullptr);
+        if (b)
+            for (size_t i = 0; i < samples; i++) b[i] += tmpBuf_[i];
+    };
 
     for (auto& in : inputs_)
     {
@@ -300,29 +366,26 @@ void MixEngine::Mix(float* out, size_t n)
         }
 
         const float g = DbToLin(in->ctl.gainDb);
-        float* bus = in->isMic ? micBuf_.data() : (in->ctl.duckable ? appBuf_.data() : freeBuf_.data());
+        for (size_t i = 0; i < samples; i++) tmpBuf_[i] *= g;
 
-        float pk = 0.0f;
-        for (size_t i = 0; i < samples; i++)
+        if (in->isMic)
         {
-            const float v = tmpBuf_[i] * g;
-            bus[i] += v;
-            pk = std::max(pk, std::fabs(v));
+            route(in->ctl, in->dsp, micBuf_.data(), micB_.data());
+            for (size_t i = 0; i < samples; i++) micSumSq += static_cast<double>(tmpBuf_[i]) * tmpBuf_[i];
         }
-        in->ctl.peak.store(pk, std::memory_order_relaxed);
+        else if (in->ctl.duckable) route(in->ctl, in->dsp, appBuf_.data(), appB_.data());
+        else                       route(in->ctl, in->dsp, freeBuf_.data(), freeB_.data());
     }
 
-    // Soundboard: its own bus, never ducked.
-    if (Soundboard* sb = soundboard_.load())
+    // Soundboard: its own channel, never ducked (Render applies its fader and on/off).
+    if (sb)
     {
         sb->Render(tmpBuf_.data(), n);
-        for (size_t i = 0; i < samples; i++) freeBuf_[i] += tmpBuf_[i];
+        if (sb->Bus().enabled) route(sb->Bus(), sbDsp_, freeBuf_.data(), freeB_.data());
     }
 
-    // Voice activity on the mic bus -> ducking target.
-    double sumSq = 0.0;
-    for (size_t i = 0; i < samples; i++) sumSq += static_cast<double>(micBuf_[i]) * micBuf_[i];
-    const float micRmsDb = LinToDb(static_cast<float>(std::sqrt(sumSq / std::max<size_t>(samples, 1))));
+    // Voice activity on the mic (wherever it's routed) -> ducking target.
+    const float micRmsDb = LinToDb(static_cast<float>(std::sqrt(micSumSq / std::max<size_t>(samples, 1))));
 
     // Once the mic knows your voice, duck on your voice itself (keyboard,
     // clicks and other people don't count); until then, on the mic's level.
@@ -334,8 +397,9 @@ void MixEngine::Mix(float* out, size_t n)
 
     const float duckTarget = (controls.duckEnabled && holdLeft_ > 0.0f) ? DbToLin(controls.duckDepthDb) : 1.0f;
     const float master     = DbToLin(controls.masterGainDb);
+    const float masterB    = DbToLin(controls.masterBGainDb);
 
-    float outPk = 0.0f;
+    float outPk = 0.0f, outBPk = 0.0f;
     for (size_t f = 0; f < n; f++)
     {
         const float coef = (duckTarget < duckGain_) ? kDuckAttack : kDuckRelease;
@@ -347,10 +411,21 @@ void MixEngine::Mix(float* out, size_t n)
             const float y = SoftClip(master * (micBuf_[i] + appBuf_[i] * duckGain_ + freeBuf_[i]));
             out[i] = y;
             outPk = std::max(outPk, std::fabs(y));
+
+            if (feedB)
+            {
+                // A soloed channel is heard as it is: no ducking, so you can judge it.
+                const float b = solo ? soloB_[i] : micB_[i] + appB_[i] * duckGain_ + freeB_[i];
+                outB_[i] = SoftClip(masterB * b);
+                outBPk = std::max(outBPk, std::fabs(outB_[i]));
+            }
         }
     }
+    if (feedB) ringB_.Write(outB_.data(), n);
 
     meters.outPeak.store(outPk, std::memory_order_relaxed);
+    meters.outBPeak.store(outBPk, std::memory_order_relaxed);
+    meters.soloOn.store(solo, std::memory_order_relaxed);
     meters.duckGain.store(duckGain_, std::memory_order_relaxed);
     meters.talking.store(talking, std::memory_order_relaxed);
 }

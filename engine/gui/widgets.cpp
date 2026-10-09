@@ -2,7 +2,11 @@
 #include "widgets.h"
 #include "theme.h"
 
+#include <QApplication>
 #include <QContextMenuEvent>
+#include <QDrag>
+#include <QMimeData>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -272,6 +276,202 @@ void TallyLamp::paintEvent(QPaintEvent*)
 }
 
 // ============================================================================
+// Knob
+// ============================================================================
+Knob::Knob(const QString& label, QWidget* parent) : QAbstractSlider(parent), label_(label)
+{
+    setRange(-120, 120);
+    setSingleStep(5);    // 0.5 dB per wheel step
+    setPageStep(30);
+    setValue(0);
+    setFixedSize(sizeHint());
+    setFocusPolicy(Qt::StrongFocus);
+    setCursor(Qt::SizeVerCursor);
+    connect(this, &QAbstractSlider::valueChanged, this, [this](int v) {
+        setToolTip(QStringLiteral("%1: %2%3 dB. Drag up/down or scroll; double-click for 0.")
+                       .arg(label_, v > 0 ? QStringLiteral("+") : QString(), QString::number(v / 10.0, 'f', 1)));
+    });
+    emit valueChanged(0);
+}
+
+void Knob::paintEvent(QPaintEvent*)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    const QRectF ring(5, 1, 24, 24);
+    const QPointF c = ring.center();
+
+    // Body.
+    QRadialGradient face(c + QPointF(-3, -4), 16);
+    face.setColorAt(0.0, QColor(0x4A, 0x5C, 0x69));
+    face.setColorAt(1.0, QColor(0x2A, 0x38, 0x43));
+    p.setPen(QPen(QColor(0x0F, 0x15, 0x1A), 1.0));
+    p.setBrush(face);
+    p.drawEllipse(ring.adjusted(3, 3, -3, -3));
+
+    // Track (270 degrees, gap at the bottom) and the lit arc from 0 to the value.
+    const int start = 225 * 16, span = -270 * 16;
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(theme::Slot, 3.0, Qt::SolidLine, Qt::FlatCap));
+    p.drawArc(ring, start, span);
+    const double t = value() / 120.0;   // -1 .. +1
+    if (value() != 0)
+    {
+        QColor arc = value() > 0 ? theme::Accent : theme::Tally;
+        if (!isEnabled()) arc = theme::Muted;
+        p.setPen(QPen(arc, 3.0, Qt::SolidLine, Qt::FlatCap));
+        p.drawArc(ring, 90 * 16, static_cast<int>(-t * 135 * 16));
+    }
+
+    // Pointer.
+    const double ang = (90.0 - t * 135.0) * 3.14159265358979 / 180.0;
+    p.setPen(QPen(hasFocus() || dragging_ ? theme::AccentHot : theme::Legend, 2.0, Qt::SolidLine, Qt::RoundCap));
+    p.drawLine(c + QPointF(std::cos(ang) * 3, -std::sin(ang) * 3), c + QPointF(std::cos(ang) * 8, -std::sin(ang) * 8));
+
+    // Label under it.
+    p.setFont(theme::Font(6.5, QFont::Bold));
+    p.setPen(value() != 0 ? theme::Legend : theme::Muted);
+    p.drawText(QRectF(0, 28, width(), 14), Qt::AlignCenter, label_);
+}
+
+void Knob::mousePressEvent(QMouseEvent* e)
+{
+    if (e->button() != Qt::LeftButton) return QAbstractSlider::mousePressEvent(e);
+    dragging_ = true;
+    dragStartY_ = static_cast<int>(e->position().y());
+    dragStartValue_ = value();
+    setSliderDown(true);
+    update();
+}
+
+void Knob::mouseMoveEvent(QMouseEvent* e)
+{
+    if (!dragging_) return;
+    const int dy = dragStartY_ - static_cast<int>(e->position().y());
+    setValue(dragStartValue_ + dy * 2);   // 100 px of travel covers the range
+}
+
+void Knob::mouseReleaseEvent(QMouseEvent* e)
+{
+    if (e->button() != Qt::LeftButton) return;
+    dragging_ = false;
+    setSliderDown(false);
+    update();
+}
+
+void Knob::mouseDoubleClickEvent(QMouseEvent*)
+{
+    setValue(0);
+}
+
+// ============================================================================
+// PanBar
+// ============================================================================
+PanBar::PanBar(QWidget* parent) : QAbstractSlider(parent)
+{
+    setOrientation(Qt::Horizontal);
+    setRange(-100, 100);
+    setSingleStep(5);
+    setPageStep(25);
+    setValue(0);
+    setFixedHeight(sizeHint().height());
+    setFocusPolicy(Qt::StrongFocus);
+    setCursor(Qt::SizeHorCursor);
+    setToolTip(QStringLiteral("Balance: drag or scroll; double-click to centre.\nRight-click for stereo width."));
+}
+
+void PanBar::setWidthValue(float width)
+{
+    if (width == width_) return;
+    width_ = width;
+    update();
+}
+
+QRectF PanBar::track() const
+{
+    return QRectF(22, height() / 2.0 - 2.5, width() - 22 - 30, 5);
+}
+
+int PanBar::valueAt(double x) const
+{
+    const QRectF t = track();
+    const double f = std::clamp((x - t.left()) / t.width(), 0.0, 1.0);
+    int v = static_cast<int>(std::lround(f * 200.0 - 100.0));
+    if (std::abs(v) < 4) v = 0;   // gentle detent in the middle
+    return v;
+}
+
+void PanBar::paintEvent(QPaintEvent*)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const QRectF t = track();
+
+    p.setFont(theme::Font(6.5, QFont::Bold));
+    p.setPen(theme::Muted);
+    p.drawText(QRectF(0, 0, 20, height()), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("PAN"));
+
+    p.setPen(Qt::NoPen);
+    p.setBrush(theme::Slot);
+    p.drawRoundedRect(t, 2.5, 2.5);
+    const double cx = t.center().x();
+    const double x = t.left() + (value() + 100) / 200.0 * t.width();
+    if (value() != 0)
+    {
+        p.setBrush(theme::Accent);
+        p.drawRoundedRect(QRectF(std::min(cx, x), t.top(), std::fabs(x - cx), t.height()), 2.5, 2.5);
+    }
+    p.setPen(QPen(theme::Muted, 1.0));
+    p.drawLine(QPointF(cx, t.top() - 2), QPointF(cx, t.bottom() + 2));
+
+    p.setPen(QPen(hasFocus() ? theme::AccentHot : QColor(0xC8, 0xD8, 0xDF), 1.5));
+    p.setBrush(QColor(0x33, 0x44, 0x50));
+    p.drawEllipse(QPointF(x, t.center().y()), 5, 5);
+
+    // Value, and the width when it isn't normal.
+    QString txt = value() == 0 ? QStringLiteral("C")
+                : QStringLiteral("%1%2").arg(value() < 0 ? QStringLiteral("L") : QStringLiteral("R")).arg(std::abs(value()));
+    if (width_ < 0.05f)       txt = QStringLiteral("MONO");
+    else if (width_ > 1.05f)  txt += QStringLiteral(" W");
+    p.setPen(value() != 0 || width_ != 1.0f ? theme::Legend : theme::Muted);
+    p.drawText(QRectF(t.right() + 4, 0, width() - t.right() - 4, height()), Qt::AlignRight | Qt::AlignVCenter, txt);
+}
+
+void PanBar::mousePressEvent(QMouseEvent* e)
+{
+    if (e->button() != Qt::LeftButton) return QAbstractSlider::mousePressEvent(e);
+    setValue(valueAt(e->position().x()));
+}
+
+void PanBar::mouseMoveEvent(QMouseEvent* e)
+{
+    if (e->buttons() & Qt::LeftButton) setValue(valueAt(e->position().x()));
+}
+
+void PanBar::mouseDoubleClickEvent(QMouseEvent*)
+{
+    setValue(0);
+}
+
+void PanBar::contextMenuEvent(QContextMenuEvent* e)
+{
+    QMenu menu(this);
+    auto* title = menu.addAction(QStringLiteral("Stereo width"));
+    title->setEnabled(false);
+    const struct { const char* name; float w; } widths[] = {
+        { "Mono", 0.0f }, { "Narrow", 0.5f }, { "Normal", 1.0f }, { "Wide", 1.5f }, { "Extra wide", 2.0f } };
+    for (const auto& w : widths)
+    {
+        auto* a = menu.addAction(QString::fromUtf8(w.name));
+        a->setCheckable(true);
+        a->setChecked(std::fabs(width_ - w.w) < 0.01f);
+        connect(a, &QAction::triggered, this, [this, v = w.w] { setWidthValue(v); emit widthChosen(v); });
+    }
+    menu.exec(e->globalPos());
+}
+
+// ============================================================================
 // CleanupScope
 // ============================================================================
 static constexpr float kScopeFloorDb = -100.0f;
@@ -385,6 +585,30 @@ void SoundPad::contextMenuEvent(QContextMenuEvent* e)
     emit menuRequested(e->globalPos());
 }
 
+void SoundPad::mousePressEvent(QMouseEvent* e)
+{
+    if (e->button() == Qt::LeftButton) pressPos_ = e->position().toPoint();
+    QAbstractButton::mousePressEvent(e);
+}
+
+// Dragging a pad a little way picks it up, to drop on another pad or a page.
+void SoundPad::mouseMoveEvent(QMouseEvent* e)
+{
+    if (dragId_ < 0 || !(e->buttons() & Qt::LeftButton)
+        || (e->position().toPoint() - pressPos_).manhattanLength() < QApplication::startDragDistance())
+        return QAbstractButton::mouseMoveEvent(e);
+
+    setDown(false);   // no click when the drag ends
+    auto* mime = new QMimeData;
+    mime->setData(QString::fromLatin1(kMime), QByteArray::number(dragId_));
+    auto* drag = new QDrag(this);
+    drag->setMimeData(mime);
+    const QPixmap pm = grab();
+    drag->setPixmap(pm);
+    drag->setHotSpot(pressPos_);
+    drag->exec(Qt::MoveAction);
+}
+
 void SoundPad::paintEvent(QPaintEvent*)
 {
     QPainter p(this);
@@ -409,9 +633,27 @@ void SoundPad::paintEvent(QPaintEvent*)
     // Body: lit from above.
     QLinearGradient body(r.topLeft(), r.bottomLeft());
     const int lift = underMouse() ? 18 : 0;
-    body.setColorAt(0.0, theme::PanelHi.lighter(100 + lift));
-    body.setColorAt(1.0, theme::Panel.lighter(100 + lift));
+    QColor top = theme::PanelHi.lighter(100 + lift), bottom = theme::Panel.lighter(100 + lift);
+    if (colour_.isValid())   // a light wash of the pad's colour
+    {
+        auto tint = [this](QColor c, int pct) {
+            return QColor((c.red() * (100 - pct) + colour_.red() * pct) / 100,
+                          (c.green() * (100 - pct) + colour_.green() * pct) / 100,
+                          (c.blue() * (100 - pct) + colour_.blue() * pct) / 100);
+        };
+        top = tint(top, 16);
+        bottom = tint(bottom, 10);
+    }
+    body.setColorAt(0.0, top);
+    body.setColorAt(1.0, bottom);
     p.fillPath(shape, body);
+    if (colour_.isValid())
+    {
+        p.save();
+        p.setClipPath(shape);
+        p.fillRect(QRectF(r.left(), r.top(), 4, r.height()), colour_);
+        p.restore();
+    }
 
     // Progress: an amber wash that fills left to right while the sound plays.
     if (playing)
@@ -503,6 +745,7 @@ void SoundPad::paintEvent(QPaintEvent*)
     else if (state_ == State::Failed) { right = QStringLiteral("Can't open"); rightColor = theme::Tally; }
     else if (playing)                 { right = QStringLiteral("Playing"); rightColor = theme::AccentHot; }
     else                               right = detail_;   // duration
+    if (looping_ && state_ == State::Ready) right = QStringLiteral("\u21BB ") + right;   // loops
     if (!right.isEmpty())
     {
         p.setFont(theme::Font(8.5));

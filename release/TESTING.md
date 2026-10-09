@@ -43,7 +43,11 @@ Use a VM that has **never** had Visual Studio or Qt installed; ideally, take a s
 - [ ] **Send to** shows VB-CABLE, and the top right shows red **Live**.
 - [ ] The mic meter moves when you speak.
 - [ ] Mic strip → **Sound → Noisy room**: tapping the desk stays silent.
-- [ ] The mic strip's clean-up display moves when you speak (amber) and shows red when there's background noise.
+- [ ] The mic strip's clean-up display moves when you speak (green) and shows red when there's background noise.
+- [ ] Output strip → **Output B: Your headphones**, then press **B** on the mic strip: you hear yourself. Press **SOLO** on an app: only that app plays on B, and Discord still hears the full mix.
+- [ ] Turn an app's **Bass** knob up and drag its **Pan** bar left: you hear the change in Discord's **Let's Check**.
+- [ ] Mic **FX → Robot**: Discord hears the robot voice; **FX → No effect** brings your voice back.
+- [ ] Soundboard: make a page, give a pad a colour and **Loop**, drag it onto another pad, restart MixCast: all of it is still there.
 
 *Features*
 - [ ] **Add app:** play a YouTube video in Edge, add `msedge.exe`, and its meter moves.

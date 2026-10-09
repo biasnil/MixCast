@@ -405,6 +405,7 @@ void VoiceProcessor::Process(float* stereo, size_t frames, VoiceSettings& s)
     const bool learn  = s.learnVoice.load(std::memory_order_relaxed);
     const bool clean  = s.cleanWhileTalking.load(std::memory_order_relaxed);
     const bool autoLv = s.autoLevel.load(std::memory_order_relaxed);
+    const int  effect = s.voiceFx.load(std::memory_order_relaxed);
 
     if (gate != lastGate_)
     {
@@ -439,7 +440,7 @@ void VoiceProcessor::Process(float* stereo, size_t frames, VoiceSettings& s)
             delayPos_ = (delayPos_ + 1) % kLookahead;
         }
         autoGain_ += (autoTarget_ - autoGain_) * kAutoGainCoef;
-        const float y = polish_.Process(Gate(g, gate) * autoGain_, deEss, eq, comp, limit);
+        const float y = polish_.Process(fx_.Process(Gate(g, gate) * autoGain_, effect), deEss, eq, comp, limit);
         hopEnergy_ += static_cast<double>(o) * o;
 
         stereo[f * 2] = stereo[f * 2 + 1] = y;

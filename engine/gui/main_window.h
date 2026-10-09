@@ -18,6 +18,7 @@ class QHBoxLayout;
 class QLabel;
 class QPushButton;
 class QSlider;
+class QToolButton;
 class QSystemTrayIcon;
 class QStackedWidget;
 class HotkeyManager;
@@ -52,7 +53,9 @@ private:
     void stopEngine();
     void tick();
     void syncStrips(const std::vector<mixcast::SourceStatus>& st);
-    void addApp(const QString& exe, const QString& path, float gainDb, bool enabled, bool duck);
+    mixcast::SourceId addApp(const QString& exe, const QString& path, float gainDb, bool enabled, bool duck);
+    void setOutputB(const QString& id);       // "" off, "default" headphones, else an endpoint id
+    void fillOutputBMenu(class QMenu* menu);
     void removeSource(mixcast::SourceId id);
     void onAddAppClicked();
     void onMicChosen(int index);
@@ -90,6 +93,7 @@ private:
     QStringList                            micIds_;
     QStringList                            outputIds_;
     QString                                profileMicId_;  // mic whose voice profile is loaded
+    std::wstring                           outputAId_;     // the cable the mix goes into
     QString                                liveMicName_;   // what Discord should pick, e.g. "CABLE Output"
 
     QHBoxLayout* stripsLayout_ = nullptr;
@@ -99,6 +103,10 @@ private:
     QFrame*      livePill_     = nullptr;
     QLabel*      outputSub_    = nullptr;
     QPushButton* getCableBtn_  = nullptr;
+    QToolButton* outBPick_     = nullptr;
+    QSlider*     outBLevel_    = nullptr;
+    QLabel*      outBLevelLbl_ = nullptr;
+    QLabel*      soloNote_     = nullptr;
     QLabel*      duckThreshName_ = nullptr;
     QLabel*      duckFollows_  = nullptr;
     QLabel*      liveDot_      = nullptr;
