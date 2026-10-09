@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**New look**
+- Channel strips with depth: a lit top edge, a soft gradient, and colour-coded scribble strips for the names (red for your mic, amber for the soundboard, cyan for apps, gold for the output).
+- LED meters that glow, with unlit segments keeping a trace of their colour like real LEDs.
+- Faders with brushed-metal caps, an amber index line and a printed dB scale.
+- Amber LCD-style dB readouts, a glowing red LIVE pill, segmented tabs and an amber-accented wordmark.
+- Soundboard pads lit from above, with keycap-style hotkeys and an amber glow while playing.
+- The mic's Noise menu is shorter: Radio voice and Learns your voice are now submenus that show their status.
+
 **Radio voice**
 - New **Radio voice** section in the mic's **Noise** menu: **De-esser**, **Voice EQ**, **Compressor** and **Limiter**, run after the clean-up in broadcast order. Together with the rumble filter and the between-words gate, the mic now has the full six-stage radio chain.
 - The limiter is on by default and never touches normal speech; the other three start off.

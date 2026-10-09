@@ -76,7 +76,8 @@ ChannelStrip::ChannelStrip(mixcast::SourceId id, StripKind kind, const QString& 
     auto* nameLbl = new QLabel;
     nameLbl->setObjectName(QStringLiteral("StripName"));
     nameLbl->setFont(theme::Font(10.5, QFont::DemiBold));
-    nameLbl->setText(QFontMetrics(nameLbl->font()).elidedText(name, Qt::ElideRight, 116));
+    nameLbl->setProperty("kind", isMic ? "mic" : kind == StripKind::Soundboard ? "sb" : "app");   // scribble-strip colour
+    nameLbl->setText(QFontMetrics(nameLbl->font()).elidedText(name, Qt::ElideRight, 94));
     nameLbl->setToolTip(name);
     root->addWidget(nameLbl);
 
@@ -121,7 +122,7 @@ ChannelStrip::ChannelStrip(mixcast::SourceId id, StripKind kind, const QString& 
         row->addStretch(1);
         tally_ = new TallyLamp;
         row->addWidget(tally_);
-        talking_ = new QLabel(QStringLiteral("Talking"));
+        talking_ = new QLabel(QStringLiteral("TALKING"));
         talking_->setObjectName(QStringLiteral("Talking"));
         row->addWidget(talking_);
         row->addStretch(1);
@@ -154,6 +155,7 @@ ChannelStrip::ChannelStrip(mixcast::SourceId id, StripKind kind, const QString& 
     // ---- On/off ----------------------------------------------------------
     onBtn_ = new QPushButton;
     onBtn_->setObjectName(QStringLiteral("Toggle"));
+    onBtn_->setProperty("power", true);   // shows red "Off" when switched off
     onBtn_->setCheckable(true);
     onBtn_->setChecked(ctl_->enabled);
     onBtn_->setText(ctl_->enabled ? QStringLiteral("On") : QStringLiteral("Off"));
@@ -244,10 +246,12 @@ void ChannelStrip::buildNoiseButton()
         emit settingsChanged();
     });
 
-    // Radio voice chain (after the clean-up, in broadcast order).
+    // Radio voice chain (after the clean-up, in broadcast order). The two
+    // newer sections are submenus so the menu still fits on a laptop screen.
     menu->addSeparator();
-    auto* pTitle = menu->addAction(QStringLiteral("Radio voice"));
-    pTitle->setEnabled(false);
+    auto* radio = menu->addMenu(QString());
+    radio->menuAction()->setData(500);   // title shows how many stages are on
+    radio->setToolTipsVisible(true);
     const struct { const char* text; const char* tip; int data; std::atomic<bool> mixcast::VoiceSettings::* flag; } stages[] = {
         { "De-esser",   "Softens harsh \"s\", \"sh\" and \"t\" sounds", 300, &mixcast::VoiceSettings::deEsser },
         { "Voice EQ",   "Less mud, more presence and air: clearer on calls", 301, &mixcast::VoiceSettings::voiceEq },
@@ -256,7 +260,7 @@ void ChannelStrip::buildNoiseButton()
     };
     for (const auto& st : stages)
     {
-        auto* a = menu->addAction(QString::fromUtf8(st.text));
+        auto* a = radio->addAction(QString::fromUtf8(st.text));
         a->setToolTip(QString::fromUtf8(st.tip));
         a->setCheckable(true);
         a->setData(st.data);
@@ -268,10 +272,10 @@ void ChannelStrip::buildNoiseButton()
     }
 
     // Learns your voice (statistics only, no AI; stays on this PC).
-    menu->addSeparator();
-    auto* lTitle = menu->addAction(QStringLiteral("Learns your voice"));
-    lTitle->setEnabled(false);
-    auto* lStatus = menu->addAction(QString());
+    auto* learn = menu->addMenu(QString());
+    learn->menuAction()->setData(501);   // title shows on/off
+    learn->setToolTipsVisible(true);
+    auto* lStatus = learn->addAction(QString());
     lStatus->setEnabled(false);
     const struct { const char* text; const char* tip; int data; std::atomic<bool> mixcast::VoiceSettings::* flag; } learns[] = {
         { "Learn my voice",
@@ -287,7 +291,7 @@ void ChannelStrip::buildNoiseButton()
     };
     for (const auto& l : learns)
     {
-        auto* a = menu->addAction(QString::fromUtf8(l.text));
+        auto* a = learn->addAction(QString::fromUtf8(l.text));
         a->setToolTip(QString::fromUtf8(l.tip));
         a->setCheckable(true);
         a->setData(l.data);
@@ -297,7 +301,8 @@ void ChannelStrip::buildNoiseButton()
             emit settingsChanged();
         });
     }
-    auto* forget = menu->addAction(QStringLiteral("Forget my voice\u2026"));
+    learn->addSeparator();
+    auto* forget = learn->addAction(QStringLiteral("Forget my voice\u2026"));
     forget->setToolTip(QStringLiteral("Clears what MixCast has learned and starts again"));
     connect(forget, &QAction::triggered, this, [this] {
         if (QMessageBox::question(this, QStringLiteral("Forget my voice"),
@@ -306,7 +311,7 @@ void ChannelStrip::buildNoiseButton()
         voice_->LoadProfile(mixcast::VoiceProfile{});
         emit settingsChanged();
     });
-    connect(menu, &QMenu::aboutToShow, this, [this, lStatus] {
+    connect(learn, &QMenu::aboutToShow, this, [this, lStatus] {
         const mixcast::VoiceProfile p = voice_->CopyProfile();
         QString text;
         if (!voice_->learnVoice)
@@ -348,7 +353,11 @@ void ChannelStrip::updateNoiseButton()
     noiseBtn_->setProperty("active", level > 0);
     Repolish(noiseBtn_);
 
+    QList<QAction*> actions = noiseBtn_->menu()->actions();
     for (auto* a : noiseBtn_->menu()->actions())
+        if (a->menu()) actions += a->menu()->actions();
+
+    for (auto* a : actions)
     {
         const int d = a->data().isValid() ? a->data().toInt() : -1;
         QSignalBlocker b(a);
@@ -357,6 +366,13 @@ void ChannelStrip::updateNoiseButton()
         else if (d == 200)          a->setChecked(rumble);
         else if (d >= 300 && d < 304) a->setChecked((polish & (1 << (d - 300))) != 0);
         else if (d >= 400 && d < 403) a->setChecked((polish & (16 << (d - 400))) != 0);
+        else if (d == 500)
+        {
+            const int on = (polish & 1) + ((polish >> 1) & 1) + ((polish >> 2) & 1) + ((polish >> 3) & 1);
+            a->setText(on ? QStringLiteral("Radio voice: %1 of 4 on").arg(on) : QStringLiteral("Radio voice: off"));
+        }
+        else if (d == 501)
+            a->setText((polish & 16) ? QStringLiteral("Learns your voice: on") : QStringLiteral("Learns your voice: off"));
     }
 }
 

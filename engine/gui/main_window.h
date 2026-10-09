@@ -93,6 +93,7 @@ private:
     QPushButton* addCard_      = nullptr;
     QComboBox*   micCombo_     = nullptr;
     QComboBox*   outputCombo_  = nullptr;
+    QFrame*      livePill_     = nullptr;
     QLabel*      outputSub_    = nullptr;
     QPushButton* getCableBtn_  = nullptr;
     QLabel*      liveDot_      = nullptr;

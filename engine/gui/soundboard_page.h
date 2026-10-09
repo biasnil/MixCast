@@ -2,8 +2,8 @@
 #pragma once
 
 #include "soundboard.h"
+#include "widgets.h"
 
-#include <QAbstractButton>
 #include <QDialog>
 #include <QKeySequence>
 #include <QWidget>
@@ -19,35 +19,6 @@ class QPushButton;
 class QScrollArea;
 class QSlider;
 class HotkeyManager;
-
-// ---------------------------------------------------------------------------
-// One pad: click to play/stop, right-click for options.
-// ---------------------------------------------------------------------------
-class SoundPad : public QAbstractButton
-{
-    Q_OBJECT
-public:
-    enum class State { Loading, Ready, Failed };
-
-    explicit SoundPad(QWidget* parent = nullptr);
-    void  setName(const QString& name)      { name_ = name; update(); }
-    void  setHotkey(const QString& label)   { hotkey_ = label; update(); }
-    void  setState(State s, const QString& detail = {});
-    void  setProgress(float p);             // < 0 = not playing
-    QSize sizeHint() const override { return { 172, 88 }; }
-
-signals:
-    void menuRequested(const QPoint& globalPos);
-
-protected:
-    void paintEvent(QPaintEvent*) override;
-    void contextMenuEvent(QContextMenuEvent* e) override;
-
-private:
-    QString name_, hotkey_, detail_;
-    State   state_ = State::Loading;
-    float   progress_ = -1.0f;
-};
 
 // ---------------------------------------------------------------------------
 // "Press a key" dialog.

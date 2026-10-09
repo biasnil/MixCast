@@ -1,7 +1,9 @@
 // MixCast GUI - look & feel.
 //
-// Concept: a broadcast desk. Graphite chassis, printed warm-white legends,
-// amber LED ladders, and a red tally lamp that lights when you're talking.
+// Concept: a broadcast desk. Graphite chassis with lit edges, printed
+// warm-white legends, glowing amber LED ladders, colour-coded scribble strips
+// (red = your mic, amber = soundboard, cyan = apps) and a red tally lamp that
+// lights when you're talking.
 #pragma once
 
 #include <QColor>
@@ -21,6 +23,8 @@ inline const QColor Amber     {0xF2, 0xA9, 0x3B};   // signal, active controls
 inline const QColor AmberHot  {0xFF, 0xD2, 0x8A};   // meter near the top
 inline const QColor Tally     {0xE5, 0x48, 0x4D};   // talking / clipping
 inline const QColor LedOff    {0x1C, 0x20, 0x26};   // unlit LED segment
+inline const QColor Cyan      {0x4C, 0xC3, 0xD9};   // app strips
+inline const QColor Bezel     {0x4A, 0x53, 0x60};   // lit top edge of panels
 
 QFont   Font(qreal pointSize, int weight = QFont::Normal);
 QString StyleSheet();

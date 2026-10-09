@@ -28,6 +28,7 @@
 #include <QSignalBlocker>
 #include <QSettings>
 #include <QSlider>
+#include <QStyle>
 #include <QSystemTrayIcon>
 #include <QVBoxLayout>
 
@@ -207,15 +208,17 @@ QWidget* MainWindow::buildTabs()
 QWidget* MainWindow::buildHeader()
 {
     auto* w = new QWidget;
+    w->setObjectName(QStringLiteral("Header"));
+    w->setAttribute(Qt::WA_StyledBackground);
     auto* l = new QHBoxLayout(w);
-    l->setContentsMargins(20, 16, 20, 12);
+    l->setContentsMargins(20, 14, 20, 14);
     l->setSpacing(10);
 
     auto* logo = new QLabel;
     logo->setPixmap(theme::LogoIcon().pixmap(28, 28));
     l->addWidget(logo);
 
-    auto* word = new QLabel(QStringLiteral("MixCast"));
+    auto* word = new QLabel(QStringLiteral("Mix<span style=\"color:%1\">Cast</span>").arg(theme::Amber.name()));
     word->setObjectName(QStringLiteral("Wordmark"));
     word->setFont(theme::Font(17, QFont::DemiBold));
     l->addWidget(word);
@@ -246,11 +249,19 @@ QWidget* MainWindow::buildHeader()
 
     l->addStretch(1);
 
+    // On-air pill: glows red while Discord can hear you.
+    livePill_ = new QFrame;
+    livePill_->setObjectName(QStringLiteral("LivePill"));
+    auto* pl = new QHBoxLayout(livePill_);
+    pl->setContentsMargins(10, 4, 12, 4);
+    pl->setSpacing(7);
     liveDot_ = new QLabel;
+    liveDot_->setObjectName(QStringLiteral("LiveDot"));
     liveDot_->setFixedSize(10, 10);
-    l->addWidget(liveDot_);
+    pl->addWidget(liveDot_);
     liveText_ = new QLabel;
-    l->addWidget(liveText_);
+    pl->addWidget(liveText_);
+    l->addWidget(livePill_);
     setLive(false, QStringLiteral("Starting\u2026"));
     return w;
 }
@@ -341,6 +352,7 @@ QWidget* MainWindow::buildMixer()
 
     auto* title = new QLabel(QStringLiteral("Output"));
     title->setObjectName(QStringLiteral("StripName"));
+    title->setProperty("kind", "master");
     title->setFont(theme::Font(10.5, QFont::DemiBold));
     ml->addWidget(title);
 
@@ -867,9 +879,13 @@ void MainWindow::refreshMicList(bool force)
 // ============================================================================
 void MainWindow::setLive(bool live, const QString& text)
 {
-    liveDot_->setStyleSheet(QStringLiteral("background:%1; border-radius:5px;")
-                                .arg(live ? theme::Tally.name() : QColor(0x5A, 0x62, 0x6D).name()));
-    liveText_->setText(text);
+    for (QWidget* w : { static_cast<QWidget*>(livePill_), static_cast<QWidget*>(liveDot_) })
+    {
+        w->setProperty("live", live);
+        w->style()->unpolish(w);
+        w->style()->polish(w);
+    }
+    liveText_->setText(text.toUpper());
     if (tray_) tray_->setToolTip(QStringLiteral("MixCast: ") + text);
 }
 
