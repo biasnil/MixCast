@@ -52,6 +52,7 @@ private:
     QToolButton*             noiseBtn_ = nullptr;
     int                      shownNoise_ = -1, shownGate_ = -1;
     bool                     shownRumble_ = false;
+    int                      shownPolish_ = -1;
 
     QLabel*      status_  = nullptr;
     QLabel*      db_      = nullptr;

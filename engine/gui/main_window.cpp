@@ -538,6 +538,10 @@ void MainWindow::startEngine()
     engine_->controls.voice.noiseLevel   = s.value(QStringLiteral("voice/noise"),  int(NoiseMedium)).toInt();
     engine_->controls.voice.gateMode     = s.value(QStringLiteral("voice/gate"),   int(GateGentle)).toInt();
     engine_->controls.voice.rumbleFilter = s.value(QStringLiteral("voice/rumble"), true).toBool();
+    engine_->controls.voice.deEsser      = s.value(QStringLiteral("voice/deEsser"),    false).toBool();
+    engine_->controls.voice.voiceEq      = s.value(QStringLiteral("voice/eq"),         false).toBool();
+    engine_->controls.voice.compressor   = s.value(QStringLiteral("voice/compressor"), false).toBool();
+    engine_->controls.voice.limiter      = s.value(QStringLiteral("voice/limiter"),    true).toBool();
 
     // ---- Mic --------------------------------------------------------------
     // No saved choice -> default mic. Saved "" -> user chose no mic.
@@ -906,6 +910,10 @@ void MainWindow::saveSettings()
     s.setValue(QStringLiteral("voice/noise"),  engine_->controls.voice.noiseLevel.load());
     s.setValue(QStringLiteral("voice/gate"),   engine_->controls.voice.gateMode.load());
     s.setValue(QStringLiteral("voice/rumble"), engine_->controls.voice.rumbleFilter.load());
+    s.setValue(QStringLiteral("voice/deEsser"),    engine_->controls.voice.deEsser.load());
+    s.setValue(QStringLiteral("voice/eq"),         engine_->controls.voice.voiceEq.load());
+    s.setValue(QStringLiteral("voice/compressor"), engine_->controls.voice.compressor.load());
+    s.setValue(QStringLiteral("voice/limiter"),    engine_->controls.voice.limiter.load());
 
     const auto st = engine_->Status();
     s.remove(QStringLiteral("apps"));

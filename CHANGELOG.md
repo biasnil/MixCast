@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+**Radio voice**
+- New **Radio voice** section in the mic's **Noise** menu: **De-esser**, **Voice EQ**, **Compressor** and **Limiter**, run after the clean-up in broadcast order. Together with the rumble filter and the between-words gate, the mic now has the full six-stage radio chain.
+- The limiter is on by default and never touches normal speech; the other three start off.
+- Console version: `p` turns all four on or off.
+
 ## 1.0.0 — first release
 
 **Mixer**

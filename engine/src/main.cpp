@@ -286,6 +286,13 @@ int wmain(int argc, wchar_t** argv)
                 case 'n': case 'N': engine.controls.voice.noiseLevel = (engine.controls.voice.noiseLevel + 1) % 4; break;
                 case 'g': case 'G': engine.controls.voice.gateMode   = (engine.controls.voice.gateMode + 1) % 4; break;
                 case 'r': case 'R': engine.controls.voice.rumbleFilter = !engine.controls.voice.rumbleFilter; break;
+                case 'p': case 'P':   // radio voice: all four polish stages together
+                {
+                    auto& v = engine.controls.voice;
+                    const bool on = !(v.deEsser && v.voiceEq && v.compressor && v.limiter);
+                    v.deEsser = on; v.voiceEq = on; v.compressor = on; v.limiter = on;
+                    break;
+                }
                 case 'x': case 'X':
                     if (!sources.empty() && !sources[selected].isMic) { engine.RemoveSource(sources[selected].id); menu = true; }
                     break;
@@ -343,11 +350,16 @@ int wmain(int argc, wchar_t** argv)
                               kNoise[v.noiseLevel.load() & 3], kGate[std::min(v.gateMode.load(), 3)],
                               v.rumbleFilter ? "on" : "off", v.noiseFloorDb.load());
                 line(buf);
+                std::snprintf(buf, sizeof(buf), "  RADIO VOICE   de-esser %s  EQ %s  compressor %s (%.1f dB)  limiter %s",
+                              v.deEsser ? "on" : "off", v.voiceEq ? "on" : "off",
+                              v.compressor ? "on" : "off", v.compressDb.load(), v.limiter ? "on" : "off");
+                line(buf);
             }
             line("----------------------------------------------------------------------------");
             line("  Up/Down select  Left/Right volume  Space on/off  k duck this app");
             line("  m mic on/off  a add app  x remove app  c change mic  d ducking  q quit");
             line("  n noise suppression  g gate (off/gentle/firm/voice only)  r rumble filter");
+            line("  p radio voice (de-esser, EQ, compressor, limiter) on/off");
             drawn = lines;
 
             std::this_thread::sleep_for(std::chrono::milliseconds(60));

@@ -164,6 +164,10 @@ void VoiceProcessor::Process(float* stereo, size_t frames, VoiceSettings& s)
 {
     const bool rumble = s.rumbleFilter.load(std::memory_order_relaxed);
     const int  gate   = std::clamp(s.gateMode.load(std::memory_order_relaxed), 0, 3);
+    const bool deEss  = s.deEsser.load(std::memory_order_relaxed);
+    const bool eq     = s.voiceEq.load(std::memory_order_relaxed);
+    const bool comp   = s.compressor.load(std::memory_order_relaxed);
+    const bool limit  = s.limiter.load(std::memory_order_relaxed);
 
     if (gate != lastGate_)
     {
@@ -197,7 +201,7 @@ void VoiceProcessor::Process(float* stereo, size_t frames, VoiceSettings& s)
             delay_[delayPos_] = o;
             delayPos_ = (delayPos_ + 1) % kLookahead;
         }
-        float y = Gate(g, gate);
+        const float y = polish_.Process(Gate(g, gate), deEss, eq, comp, limit);
         hopEnergy_ += static_cast<double>(o) * o;
 
         stereo[f * 2] = stereo[f * 2 + 1] = y;
@@ -228,6 +232,9 @@ void VoiceProcessor::Process(float* stereo, size_t frames, VoiceSettings& s)
 
             s.noiseFloorDb.store(floorDb_, std::memory_order_relaxed);
             s.gateOpen.store(gate == GateOff || gateGain_ > 0.5f, std::memory_order_relaxed);
+            s.deEssDb.store(deEss ? polish_.DeEssDb() : 0.0f, std::memory_order_relaxed);
+            s.compressDb.store(comp ? polish_.CompressDb() : 0.0f, std::memory_order_relaxed);
+            s.limitDb.store(limit ? polish_.LimitDb() : 0.0f, std::memory_order_relaxed);
         }
     }
 }

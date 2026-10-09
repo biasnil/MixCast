@@ -10,8 +10,9 @@
 //                       "Voice only" mode opens only for voiced speech
 //                       (pitch detected by autocorrelation), so chewing,
 //                       clicks and bumps stay muted even when they're loud.
+//   4. Voice polish     de-esser, voice EQ, compressor, limiter (voice_polish.h)
 //
-// Added latency: 512 samples = 10.7 ms (+25 ms lookahead in "Voice only" gate mode)
+// Added latency: 512 + 63 samples = 12.0 ms (+25 ms lookahead in "Voice only" gate mode)
 // (so toggling never clicks).
 #pragma once
 
@@ -19,6 +20,8 @@
 #include <atomic>
 #include <complex>
 #include <cstddef>
+
+#include "voice_polish.h"
 
 namespace mixcast {
 
@@ -31,12 +34,19 @@ struct VoiceSettings
     std::atomic<int>   noiseLevel{NoiseMedium};
     std::atomic<int>   gateMode{GateGentle};
     std::atomic<bool>  rumbleFilter{true};
+    std::atomic<bool>  deEsser{false};
+    std::atomic<bool>  voiceEq{false};
+    std::atomic<bool>  compressor{false};
+    std::atomic<bool>  limiter{true};
 
     // Published by the processor (read-only for the UI).
     std::atomic<float> noiseFloorDb{-90.0f};   // estimated background level
     std::atomic<float> removedDb{0.0f};        // how much is being taken out right now
     std::atomic<bool>  gateOpen{true};
     std::atomic<bool>  voiceDetected{false};   // pitch found in the current hop
+    std::atomic<float> deEssDb{0.0f};          // polish gain reduction right now (<= 0)
+    std::atomic<float> compressDb{0.0f};
+    std::atomic<float> limitDb{0.0f};
 };
 
 class VoiceProcessor
@@ -105,6 +115,8 @@ private:
     float holdLeft_ = 0.0f;
     float floorDb_ = -70.0f;
     double hopEnergy_ = 0.0;
+
+    VoicePolish polish_;
 };
 
 } // namespace mixcast

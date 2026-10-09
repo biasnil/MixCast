@@ -22,6 +22,7 @@ add_library(mixcast_core STATIC
     src/ring_buffer.h
     src/drift_reader.h
     src/voice_processor.h src/voice_processor.cpp
+    src/voice_polish.h   src/voice_polish.cpp
     src/audio_decoder.h  src/audio_decoder.cpp
     src/audio_encoder.h  src/audio_encoder.cpp
     src/resampler.h      src/resampler.cpp

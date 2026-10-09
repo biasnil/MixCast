@@ -68,6 +68,7 @@ The same idea works in OBS, Zoom and other apps: pick **CABLE Output** as the mi
 - **Mic clean-up:** on your mic strip press **Noise** and choose:
   - **Noise suppression: Medium or High** for fans and hum.
   - **Silence between words: Voice only** to also mute eating, typing and clicks between your words.
+  - **Radio voice:** tick **De-esser**, **Voice EQ** and **Compressor** for a clear, even, broadcast-style voice. **Limiter** is on by default and stops shouts from clipping.
 - **Soundboard:** on the **Soundboard** tab press **Add sounds**, then right-click a pad to give it a hotkey.
 - **Edit a sound:** right-click a pad and choose **Edit…**, trim it on the **Editor** tab, then press **Save to pad**.
 

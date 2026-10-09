@@ -26,6 +26,7 @@ MixCast/
         ├── ring_buffer.h     lock-free capture -> mixer ring
         ├── drift_reader.h    clock-drift compensation (tiny adaptive resample)
         ├── voice_processor.h/.cpp  mic noise suppression, gate, rumble filter
+        ├── voice_polish.h/.cpp     radio voice: de-esser, EQ, compressor, limiter
         ├── soundboard.h/.cpp       built-in soundboard: voices, resampler, headphone monitor
         ├── audio_decoder.h/.cpp    MP3/WAV/M4A/WMA/FLAC decoding (Windows Media Foundation)
         ├── audio_encoder.h/.cpp    WAV writer + MP3/M4A export (Windows' built-in encoders)
@@ -137,7 +138,7 @@ Everything is in **`%LOCALAPPDATA%\MixCast`**, usually `C:\Users\<you>\AppData\L
 Older builds stored settings in the registry. The first launch moves them into `MixCast.ini` and clears the registry copy. To reset MixCast completely, close it and delete the folder.
 
 ## Mic noise suppression
-The **Noise** button on the mic strip opens a menu with three settings. They affect only your mic; apps are never filtered.
+The **Noise** button on the mic strip opens a menu with the mic clean-up settings and the **Radio voice** chain (below). They affect only your mic; apps are never filtered.
 
 | Setting | Options | What it does |
 |---|---|---|
@@ -151,7 +152,7 @@ This is classic signal processing that runs on your PC with no AI. It uses:
 - decision-directed Wiener gains
 - smoothing that avoids the "watery" sound
 
-The whole chain adds a constant **10.7 ms** of delay, whether it's on or off.
+The whole chain, including Radio voice, adds a constant **12 ms** of delay, whether it's on or off.
 
 **Why eating or tapping still gets through on High + Firm.** Noise suppression learns *steady* sounds (fans, hum, hiss). A crunch or a click is sudden and loud, so it looks like speech to that stage, and the Firm gate opens for anything that loud. Use **Voice only** for these sounds. In a test with loud crunches between sentences:
 
@@ -180,7 +181,30 @@ Keep Discord's own Noise Suppression **off** when you use MixCast's, so the two 
 | High | −28.2 dB | −0.4 dB |
 | High + Firm gate | −30.2 dB | −0.4 dB |
 
-With every feature off, the output is bit-identical to the input, just 10.7 ms later.
+With every feature off, the output is bit-identical to the input, just 12 ms later.
+
+## Radio voice
+Radio stations run a voice through six stages: high-pass, downward expander, de-esser, EQ, compressor, limiter. MixCast already does the first two as **Cut low rumble** and **Silence between words**. The **Radio voice** section of the **Noise** menu adds the other four, in that order, after the clean-up:
+
+| Stage | Default | What it does |
+|---|---|---|
+| **De-esser** | Off | Splits your voice at 4.5 kHz and turns the top band down (up to 12 dB) only while it's louder than the rest of your voice, so harsh "s", "sh" and "t" sounds soften but vowels keep their brightness. |
+| **Voice EQ** | Off | −2.5 dB at 250 Hz (less mud and boxiness), +3 dB at 4 kHz (presence, easier to understand), +2 dB shelf above 10 kHz (air). |
+| **Compressor** | Off | 3:1 above −24 dBFS with a 6 dB soft knee, 5 ms attack and 150 ms release. Make-up gain keeps normal speech (around −18 dBFS) at the same level, so quiet words come up and loud ones come down. |
+| **Limiter** | On | A look-ahead peak limiter with a −1 dBFS ceiling. Shouts and laughs never clip, and it does nothing to normal speech. |
+
+Measured on test signals:
+
+| Test | Result |
+|---|---|
+| De-esser on a 300 Hz vowel | 0.0 dB (untouched) |
+| De-esser on a 7 kHz "sss" | −10 dB |
+| Compressor, input −40 / −18 / 0 dBFS | output −36 / −17.6 / −11.4 dBFS |
+| Limiter, input +12 dBFS or a 3× transient | peak −1.0 dBFS |
+
+- The compressor also lifts the room between words by about 4 dB, so keep **Silence between words** on when you use it.
+- If your voice already sounds "pumped", turn off Discord's **Automatic Gain Control**: two compressors fight.
+- All four stages together use under 1% of one CPU core.
 
 ## Console version (mixcast-cli.exe)
 ```powershell
@@ -206,6 +230,7 @@ In Discord, set **Settings → Voice & Video → Input Device** to **CABLE Outpu
 | `n` | Cycle noise suppression (off / low / medium / high) |
 | `g` | Cycle the between-words gate (off / gentle / firm) |
 | `r` | Rumble filter on/off |
+| `p` | Radio voice on/off (de-esser, EQ, compressor and limiter together) |
 | `q` | Quit |
 
 - **Ducking:** apps marked **ducks** get quieter while you talk (music, games). Apps marked **no-duck** stay at full level (Soundpad, sound effects).

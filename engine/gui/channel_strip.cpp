@@ -243,6 +243,29 @@ void ChannelStrip::buildNoiseButton()
         emit settingsChanged();
     });
 
+    // Radio voice chain (after the clean-up, in broadcast order).
+    menu->addSeparator();
+    auto* pTitle = menu->addAction(QStringLiteral("Radio voice"));
+    pTitle->setEnabled(false);
+    const struct { const char* text; const char* tip; int data; std::atomic<bool> mixcast::VoiceSettings::* flag; } stages[] = {
+        { "De-esser",   "Softens harsh \"s\", \"sh\" and \"t\" sounds", 300, &mixcast::VoiceSettings::deEsser },
+        { "Voice EQ",   "Less mud, more presence and air: clearer on calls", 301, &mixcast::VoiceSettings::voiceEq },
+        { "Compressor", "Evens out quiet and loud words so you're always easy to hear", 302, &mixcast::VoiceSettings::compressor },
+        { "Limiter",    "Stops shouts and laughs from clipping (ceiling \u22121 dB)", 303, &mixcast::VoiceSettings::limiter },
+    };
+    for (const auto& st : stages)
+    {
+        auto* a = menu->addAction(QString::fromUtf8(st.text));
+        a->setToolTip(QString::fromUtf8(st.tip));
+        a->setCheckable(true);
+        a->setData(st.data);
+        connect(a, &QAction::toggled, this, [this, flag = st.flag](bool on) {
+            (voice_->*flag) = on;
+            updateNoiseButton();
+            emit settingsChanged();
+        });
+    }
+
     menu->setToolTipsVisible(true);
     noiseBtn_->setMenu(menu);
     updateNoiseButton();
@@ -254,8 +277,10 @@ void ChannelStrip::updateNoiseButton()
     const int  level  = std::clamp(voice_->noiseLevel.load(), 0, 3);
     const int  gate   = std::clamp(voice_->gateMode.load(), 0, 3);
     const bool rumble = voice_->rumbleFilter;
-    if (level == shownNoise_ && gate == shownGate_ && rumble == shownRumble_) return;
-    shownNoise_ = level; shownGate_ = gate; shownRumble_ = rumble;
+    const int  polish = (voice_->deEsser ? 1 : 0) | (voice_->voiceEq ? 2 : 0)
+                      | (voice_->compressor ? 4 : 0) | (voice_->limiter ? 8 : 0);
+    if (level == shownNoise_ && gate == shownGate_ && rumble == shownRumble_ && polish == shownPolish_) return;
+    shownNoise_ = level; shownGate_ = gate; shownRumble_ = rumble; shownPolish_ = polish;
 
     static const char* kNames[] = { "Off", "Low", "Medium", "High" };
     noiseBtn_->setText(QStringLiteral("Noise: %1  \u25BE").arg(QString::fromUtf8(kNames[level])));
@@ -270,6 +295,7 @@ void ChannelStrip::updateNoiseButton()
         if (d >= 0 && d < 4)        a->setChecked(d == level);
         else if (d >= 100 && d < 200) a->setChecked(d - 100 == gate);
         else if (d == 200)          a->setChecked(rumble);
+        else if (d >= 300 && d < 304) a->setChecked((polish & (1 << (d - 300))) != 0);
     }
 }
 
