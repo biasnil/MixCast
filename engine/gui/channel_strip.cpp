@@ -8,6 +8,7 @@
 #include <QHBoxLayout>
 #include <QActionGroup>
 #include <QLabel>
+#include <QMessageBox>
 #include <QMenu>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -266,6 +267,63 @@ void ChannelStrip::buildNoiseButton()
         });
     }
 
+    // Learns your voice (statistics only, no AI; stays on this PC).
+    menu->addSeparator();
+    auto* lTitle = menu->addAction(QStringLiteral("Learns your voice"));
+    lTitle->setEnabled(false);
+    auto* lStatus = menu->addAction(QString());
+    lStatus->setEnabled(false);
+    const struct { const char* text; const char* tip; int data; std::atomic<bool> mixcast::VoiceSettings::* flag; } learns[] = {
+        { "Learn my voice",
+          "Learns your pitch, level and voice spectrum while you talk, and keeps adjusting as your voice changes. "
+          "Then only your voice opens \"Voice only\" and ducks apps, the gate sits between your room and your "
+          "voice, and noise is removed harder where your voice never is.", 400, &mixcast::VoiceSettings::learnVoice },
+        { "Auto level",
+          "Keeps your voice at a steady level whatever your mic's gain (needs Learn my voice)", 401,
+          &mixcast::VoiceSettings::autoLevel },
+        { "Clean while I talk",
+          "Follows your pitch and turns down noise between your voice's harmonics while you speak. "
+          "Works only when the room is noisy, and only on vowels.", 402, &mixcast::VoiceSettings::cleanWhileTalking },
+    };
+    for (const auto& l : learns)
+    {
+        auto* a = menu->addAction(QString::fromUtf8(l.text));
+        a->setToolTip(QString::fromUtf8(l.tip));
+        a->setCheckable(true);
+        a->setData(l.data);
+        connect(a, &QAction::toggled, this, [this, flag = l.flag](bool on) {
+            (voice_->*flag) = on;
+            updateNoiseButton();
+            emit settingsChanged();
+        });
+    }
+    auto* forget = menu->addAction(QStringLiteral("Forget my voice\u2026"));
+    forget->setToolTip(QStringLiteral("Clears what MixCast has learned and starts again"));
+    connect(forget, &QAction::triggered, this, [this] {
+        if (QMessageBox::question(this, QStringLiteral("Forget my voice"),
+                QStringLiteral("Clear everything MixCast has learned about your voice and start learning again?"))
+            != QMessageBox::Yes) return;
+        voice_->LoadProfile(mixcast::VoiceProfile{});
+        emit settingsChanged();
+    });
+    connect(menu, &QMenu::aboutToShow, this, [this, lStatus] {
+        const mixcast::VoiceProfile p = voice_->CopyProfile();
+        QString text;
+        if (!voice_->learnVoice)
+            text = QStringLiteral("Not learning");
+        else if (!p.Trained())
+            text = QStringLiteral("Learning\u2026 %1% (keep talking)")
+                       .arg(static_cast<int>(100.0f * p.voicedSec / mixcast::VoiceProfile::kTrainedSec));
+        else
+        {
+            float lo = 0.0f, hi = 0.0f;
+            p.PitchRange(lo, hi);
+            text = QStringLiteral("Knows your voice: %1\u2013%2 Hz, %3 min heard")
+                       .arg(std::lround(lo)).arg(std::lround(hi)).arg(std::max(1L, std::lround(p.voicedSec / 60.0f)));
+        }
+        lStatus->setText(text);
+    });
+
     menu->setToolTipsVisible(true);
     noiseBtn_->setMenu(menu);
     updateNoiseButton();
@@ -278,7 +336,9 @@ void ChannelStrip::updateNoiseButton()
     const int  gate   = std::clamp(voice_->gateMode.load(), 0, 3);
     const bool rumble = voice_->rumbleFilter;
     const int  polish = (voice_->deEsser ? 1 : 0) | (voice_->voiceEq ? 2 : 0)
-                      | (voice_->compressor ? 4 : 0) | (voice_->limiter ? 8 : 0);
+                      | (voice_->compressor ? 4 : 0) | (voice_->limiter ? 8 : 0)
+                      | (voice_->learnVoice ? 16 : 0) | (voice_->autoLevel ? 32 : 0)
+                      | (voice_->cleanWhileTalking ? 64 : 0);
     if (level == shownNoise_ && gate == shownGate_ && rumble == shownRumble_ && polish == shownPolish_) return;
     shownNoise_ = level; shownGate_ = gate; shownRumble_ = rumble; shownPolish_ = polish;
 
@@ -296,6 +356,7 @@ void ChannelStrip::updateNoiseButton()
         else if (d >= 100 && d < 200) a->setChecked(d - 100 == gate);
         else if (d == 200)          a->setChecked(rumble);
         else if (d >= 300 && d < 304) a->setChecked((polish & (1 << (d - 300))) != 0);
+        else if (d >= 400 && d < 403) a->setChecked((polish & (16 << (d - 400))) != 0);
     }
 }
 

@@ -293,6 +293,9 @@ int wmain(int argc, wchar_t** argv)
                     v.deEsser = on; v.voiceEq = on; v.compressor = on; v.limiter = on;
                     break;
                 }
+                case 'l': case 'L': engine.controls.voice.learnVoice = !engine.controls.voice.learnVoice; break;
+                case 'v': case 'V': engine.controls.voice.autoLevel = !engine.controls.voice.autoLevel; break;
+                case 'h': case 'H': engine.controls.voice.cleanWhileTalking = !engine.controls.voice.cleanWhileTalking; break;
                 case 'x': case 'X':
                     if (!sources.empty() && !sources[selected].isMic) { engine.RemoveSource(sources[selected].id); menu = true; }
                     break;
@@ -354,12 +357,23 @@ int wmain(int argc, wchar_t** argv)
                               v.deEsser ? "on" : "off", v.voiceEq ? "on" : "off",
                               v.compressor ? "on" : "off", v.compressDb.load(), v.limiter ? "on" : "off");
                 line(buf);
+                if (!v.learnVoice)
+                    std::snprintf(buf, sizeof(buf), "  YOUR VOICE    not learning");
+                else if (!v.profileInUse)
+                    std::snprintf(buf, sizeof(buf), "  YOUR VOICE    learning... %.0f of %.0f s heard",
+                                  v.learnedSec.load(), VoiceProfile::kTrainedSec);
+                else
+                    std::snprintf(buf, sizeof(buf), "  YOUR VOICE    %.0f-%.0f Hz  auto level %s (%+.1f dB)  clean while talking %s",
+                                  v.pitchLoHz.load(), v.pitchHiHz.load(), v.autoLevel ? "on" : "off",
+                                  v.autoGainDb.load(), v.cleanWhileTalking ? "on" : "off");
+                line(buf);
             }
             line("----------------------------------------------------------------------------");
             line("  Up/Down select  Left/Right volume  Space on/off  k duck this app");
             line("  m mic on/off  a add app  x remove app  c change mic  d ducking  q quit");
             line("  n noise suppression  g gate (off/gentle/firm/voice only)  r rumble filter");
             line("  p radio voice (de-esser, EQ, compressor, limiter) on/off");
+            line("  l learn my voice  v auto level  h clean while I talk");
             drawn = lines;
 
             std::this_thread::sleep_for(std::chrono::milliseconds(60));

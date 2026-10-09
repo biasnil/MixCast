@@ -7,6 +7,14 @@
 - The limiter is on by default and never touches normal speech; the other three start off.
 - Console version: `p` turns all four on or off.
 
+**Learns your voice (statistics, no AI)**
+- **Learn my voice** (on): learns your pitch range, speaking level and voice spectrum from moments it's sure are you, and keeps following your voice as it changes. Once trained, only your pitch range counts as voice (Voice only gate, ducking, Talking lamp), the gate threshold sits between your room and your voice, and noise suppression is stricter where your voice never has energy.
+- **Auto level** (off): keeps your voice at a steady level whatever the mic gain.
+- **Clean while I talk** (off): a pitch-tracked comb that turns down noise between your harmonics during vowels, only as hard as the room is noisy.
+- **Forget my voice…** starts learning again. The profile is saved in `MixCast.ini`.
+- With these off, the mic sounds exactly as before.
+- Console version: `l`, `v` and `h` toggle them.
+
 ## 1.0.0 — first release
 
 **Mixer**

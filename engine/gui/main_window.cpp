@@ -143,6 +143,11 @@ MainWindow::MainWindow()
     connect(&tickTimer_, &QTimer::timeout, this, &MainWindow::tick);
     tickTimer_.start(33);   // ~30 fps meters
 
+    // What the mic learns about your voice is kept even if MixCast is killed.
+    auto* learnSave = new QTimer(this);
+    connect(learnSave, &QTimer::timeout, this, &MainWindow::saveSettings);
+    learnSave->start(60 * 1000);
+
     saveTimer_.setSingleShot(true);
     saveTimer_.setInterval(800);
     connect(&saveTimer_, &QTimer::timeout, this, &MainWindow::saveSettings);
@@ -414,7 +419,8 @@ QWidget* MainWindow::buildDuckBar()
     duckThresh_->setInvertedAppearance(true);   // right = more sensitive (lower threshold)
     duckThresh_->setInvertedControls(true);
     duckThresh_->setToolTip(QStringLiteral("Slide right if quiet speech doesn't lower the apps; "
-                                           "left if background noise does"));
+                                           "left if background noise does. Once MixCast has learned "
+                                           "your voice, ducking follows your voice instead."));
     l->addWidget(duckThresh_);
     duckThreshLbl_ = new QLabel;
     duckThreshLbl_->setFixedWidth(60);
@@ -542,6 +548,14 @@ void MainWindow::startEngine()
     engine_->controls.voice.voiceEq      = s.value(QStringLiteral("voice/eq"),         false).toBool();
     engine_->controls.voice.compressor   = s.value(QStringLiteral("voice/compressor"), false).toBool();
     engine_->controls.voice.limiter      = s.value(QStringLiteral("voice/limiter"),    true).toBool();
+    engine_->controls.voice.learnVoice        = s.value(QStringLiteral("voice/learn"),     true).toBool();
+    engine_->controls.voice.autoLevel         = s.value(QStringLiteral("voice/autoLevel"), false).toBool();
+    engine_->controls.voice.cleanWhileTalking = s.value(QStringLiteral("voice/cleanTalk"), false).toBool();
+    {
+        VoiceProfile learned;
+        if (VoiceProfile::Deserialize(s.value(QStringLiteral("voice/profile")).toByteArray().toStdString(), learned))
+            engine_->controls.voice.LoadProfile(learned);
+    }
 
     // ---- Mic --------------------------------------------------------------
     // No saved choice -> default mic. Saved "" -> user chose no mic.
@@ -914,6 +928,13 @@ void MainWindow::saveSettings()
     s.setValue(QStringLiteral("voice/eq"),         engine_->controls.voice.voiceEq.load());
     s.setValue(QStringLiteral("voice/compressor"), engine_->controls.voice.compressor.load());
     s.setValue(QStringLiteral("voice/limiter"),    engine_->controls.voice.limiter.load());
+    s.setValue(QStringLiteral("voice/learn"),      engine_->controls.voice.learnVoice.load());
+    s.setValue(QStringLiteral("voice/autoLevel"),  engine_->controls.voice.autoLevel.load());
+    s.setValue(QStringLiteral("voice/cleanTalk"),  engine_->controls.voice.cleanWhileTalking.load());
+    {
+        const std::string learned = engine_->controls.voice.CopyProfile().Serialize();
+        s.setValue(QStringLiteral("voice/profile"), QByteArray(learned.data(), static_cast<int>(learned.size())));
+    }
 
     const auto st = engine_->Status();
     s.remove(QStringLiteral("apps"));

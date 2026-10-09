@@ -324,7 +324,11 @@ void MixEngine::Mix(float* out, size_t n)
     for (size_t i = 0; i < samples; i++) sumSq += static_cast<double>(micBuf_[i]) * micBuf_[i];
     const float micRmsDb = LinToDb(static_cast<float>(std::sqrt(sumSq / std::max<size_t>(samples, 1))));
 
-    const bool talking = micRmsDb > controls.duckThresholdDb;
+    // Once the mic knows your voice, duck on your voice itself (keyboard,
+    // clicks and other people don't count); until then, on the mic's level.
+    const bool talking = controls.voice.profileInUse.load(std::memory_order_relaxed)
+        ? controls.voice.speaking.load(std::memory_order_relaxed) && micRmsDb > -70.0f
+        : micRmsDb > controls.duckThresholdDb;
     if (talking) holdLeft_ = controls.duckHoldMs * (kSampleRate / 1000.0f);
     else         holdLeft_ = std::max(0.0f, holdLeft_ - static_cast<float>(n));
 

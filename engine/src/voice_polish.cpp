@@ -92,6 +92,8 @@ float CompGr(float inDb)
 }
 } // namespace
 
+VoicePolish::Biquad VoicePolish::Biquad::LowPass(float hz, float q) { return mixcast::LowPass(hz, q); }
+
 VoicePolish::VoicePolish()
 {
     split_    = LowPass(kSplitHz, 0.7071f);

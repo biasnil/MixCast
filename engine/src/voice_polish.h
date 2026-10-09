@@ -41,6 +41,7 @@ public:
             z2 = b2 * x - a2 * y;
             return y;
         }
+        static Biquad LowPass(float hz, float q);   // RBJ cookbook, 48 kHz
     };
 
     static constexpr int kLookahead = 64;    // limiter window; delay is kLookahead - 1

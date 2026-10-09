@@ -68,6 +68,7 @@ The same idea works in OBS, Zoom and other apps: pick **CABLE Output** as the mi
 - **Mic clean-up:** on your mic strip press **Noise** and choose:
   - **Noise suppression: Medium or High** for fans and hum.
   - **Silence between words: Voice only** to also mute eating, typing and clicks between your words.
+  - **Learns your voice** (on by default): after about a minute of talking, only your own voice opens the gate and ducks apps. Tick **Auto level** for a steady volume, and **Clean while I talk** in a noisy room.
   - **Radio voice:** tick **De-esser**, **Voice EQ** and **Compressor** for a clear, even, broadcast-style voice. **Limiter** is on by default and stops shouts from clipping.
 - **Soundboard:** on the **Soundboard** tab press **Add sounds**, then right-click a pad to give it a hotkey.
 - **Edit a sound:** right-click a pad and choose **Edit…**, trim it on the **Editor** tab, then press **Save to pad**.
@@ -148,6 +149,8 @@ To reset MixCast completely, close it (tray icon → Quit) and delete that folde
 | Friends hear an echo of themselves | Don't add Discord as an app, and keep your Windows default playback on your headset, never CABLE Input. |
 | My voice sounds "pumped" or cuts out | Turn off Discord's Noise Suppression and Automatic Gain Control (Step 6). |
 | Eating or typing still gets through | Mic strip → **Noise → Silence between words → Voice only**. |
+| Music ducks when someone else talks or the TV is on | Keep **Learn my voice** on and talk for a minute; then only your pitch range ducks apps. |
+| It stopped recognising me (new mic, a cold) | It re-learns over a few minutes. To start fresh: **Noise → Forget my voice…** |
 | A hotkey doesn't work | Another app already uses that key. Pick a different one; numpad keys, F13–F24 or Ctrl/Alt combos work best. |
 | Build error about Qt | Check the `-DCMAKE_PREFIX_PATH` path in Step 4 points at your Qt `msvc2022_64` folder. |
 
