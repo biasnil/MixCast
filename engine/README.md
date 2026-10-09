@@ -86,7 +86,7 @@ The build copies Qt's DLLs next to `mixcast.exe` with `windeployqt`, so you can 
 - **Output strip:** shows exactly what Discord hears, with a master fader, and where **Output B** goes, with its own level.
 - **Bottom bar:** *Auto-duck* on/off, how much to lower apps, and voice sensitivity.
 - **Saved settings:** your mic, apps, levels and ducking settings are saved and restored the next time you open MixCast. See *Where MixCast saves things* below.
-- **Theme (right of the tabs):** **Ocean** (deep navy and cyan, the default) or **Classic** (slate and mint). It switches instantly and is remembered. Coral always means talking, OFF or a warning, and yellow means SOLO, in every theme.
+- **Theme (right of the tabs):** **Ocean** (deep navy and cyan, the default), **Classic** (slate and mint), **Sakura** (dark plum and pink), **Ember** (charcoal and orange) or **Light** (white and blue). It switches instantly and is remembered. Coral always means talking, OFF or a warning, and yellow means SOLO, in every theme.
 - **Live indicator (top right):** red **Live** while something is switched on, grey **All off** when your mic, every app and the soundboard are all off (Discord hears silence).
 - **Closing the window** keeps MixCast mixing in the system tray. Right-click the tray icon to mute your mic or quit.
 

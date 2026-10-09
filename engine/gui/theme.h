@@ -18,7 +18,7 @@
 
 namespace theme {
 
-enum ThemeId : int { ThemeOcean = 0, ThemeClassic, ThemeCount };
+enum ThemeId : int { ThemeOcean = 0, ThemeClassic, ThemeSakura, ThemeEmber, ThemeLight, ThemeCount };
 
 struct Palette
 {
@@ -29,6 +29,7 @@ struct Palette
     QColor legend, textSoft, textDim, muted, faint;
     QColor accent, accentHot, accentHover, accentPressed, accentDim, accentDeep, onAccent;
     QColor warm, onWarm, tally, tallySoft, tallyDeep, liveBg, bannerBg, liveOff, ledOff;
+    QColor strong;   // hover text: white on dark themes, near-black on Light
 };
 
 const Palette& ThemePalette(int id);

@@ -17,7 +17,7 @@
 
 **New look**
 - A modern mixing-console design: one panel with a column per channel, and one accent colour for everything that's on.
-- **Colour themes:** **Ocean** (deep navy with cyan, the new default) and **Classic** (slate with mint). Pick one from the button at the right of the tab row; it switches instantly and is remembered.
+- **Colour themes:** **Ocean** (deep navy with cyan, the new default), **Classic** (slate with mint), **Sakura** (dark plum with pink), **Ember** (charcoal with orange) and **Light** (white with blue). Pick one from the button at the right of the tab row; it switches instantly and is remembered.
 - Each channel has a section header (MIC, SOUNDBOARD, APP) with the device or app name under it, a dark info panel, and a big gain readout that turns coral above 0 dB.
 - Fat pill faders that fill up to a round knob, fine green-to-yellow-to-coral LED meters, and outlined buttons that fill mint when on. A switched-off channel shows a coral **OFF** and a dimmed fader.
 - A mint **MIX** badge in the header, uppercase section labels, a glowing coral LIVE pill, and slate soundboard pads with keycap-style hotkeys.
