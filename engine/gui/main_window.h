@@ -70,6 +70,8 @@ private:
     void loadGlobalSettings();
     void saveSettings();
     void saveSettingsSoon();
+    void loadVoiceProfile(const QString& micId);
+    void saveVoiceProfile();
 
     // Declared before engine_ so they outlive it.
     std::unique_ptr<mixcast::Soundboard> soundboard_;
@@ -87,6 +89,7 @@ private:
     QList<mixcast::SourceId>               stripOrder_;
     QStringList                            micIds_;
     QStringList                            outputIds_;
+    QString                                profileMicId_;  // mic whose voice profile is loaded
     QString                                liveMicName_;   // what Discord should pick, e.g. "CABLE Output"
 
     QHBoxLayout* stripsLayout_ = nullptr;
@@ -96,6 +99,8 @@ private:
     QFrame*      livePill_     = nullptr;
     QLabel*      outputSub_    = nullptr;
     QPushButton* getCableBtn_  = nullptr;
+    QLabel*      duckThreshName_ = nullptr;
+    QLabel*      duckFollows_  = nullptr;
     QLabel*      liveDot_      = nullptr;
     QLabel*      liveText_     = nullptr;
     QFrame*      banner_       = nullptr;

@@ -28,6 +28,8 @@ MixCast/
         ├── voice_processor.h/.cpp  mic noise suppression, gate, rumble filter
         ├── voice_polish.h/.cpp     radio voice: de-esser, EQ, compressor, limiter
         ├── voice_profile.h/.cpp    what the mic has learned about your voice
+        ├── sound_dictionary.h/.cpp remove keyboard & clicks (learned NMF dictionaries)
+        ├── mic_presets.h           Natural / Clean / Studio / Noisy room
         ├── soundboard.h/.cpp       built-in soundboard: voices, resampler, headphone monitor
         ├── audio_decoder.h/.cpp    MP3/WAV/M4A/WMA/FLAC decoding (Windows Media Foundation)
         ├── audio_encoder.h/.cpp    WAV writer + MP3/M4A export (Windows' built-in encoders)
@@ -139,7 +141,18 @@ Everything is in **`%LOCALAPPDATA%\MixCast`**, usually `C:\Users\<you>\AppData\L
 Older builds stored settings in the registry. The first launch moves them into `MixCast.ini` and clears the registry copy. To reset MixCast completely, close it and delete the folder.
 
 ## Mic noise suppression
-The **Noise** button on the mic strip opens a menu with the mic clean-up settings and the **Radio voice** chain (below). They affect only your mic; apps are never filtered.
+The **Sound** button on the mic strip picks a preset: **Natural**, **Clean** (default), **Studio** or **Noisy room**. Each preset sets everything below at once:
+
+| Preset | Noise suppression | Silence between words | Radio voice | Learns your voice |
+|---|---|---|---|---|
+| Natural | Low | Off | Limiter | Learn |
+| Clean | Medium | Gentle | Limiter | Learn |
+| Studio | Medium | Gentle | De-esser, EQ, compressor, limiter | Learn, auto level |
+| Noisy room | High | Voice only | Limiter | Learn, clean while I talk, remove keyboard & clicks |
+
+Every setting can still be changed on its own under **Sound → Advanced**. The button then shows **Custom**. The settings affect only your mic; apps are never filtered.
+
+The small display under the mic's name shows the clean-up live, in 20 bands from low to high pitch. Amber is your voice that's kept; red above it is background and clicks being removed, with the total in dB at the top right.
 
 | Setting | Options | What it does |
 |---|---|---|
@@ -185,7 +198,7 @@ Keep Discord's own Noise Suppression **off** when you use MixCast's, so the two 
 With every feature off, the output is bit-identical to the input, just 12 ms later.
 
 ## Radio voice
-Radio stations run a voice through six stages: high-pass, downward expander, de-esser, EQ, compressor, limiter. MixCast already does the first two as **Cut low rumble** and **Silence between words**. The **Radio voice** section of the **Noise** menu adds the other four, in that order, after the clean-up:
+Radio stations run a voice through six stages: high-pass, downward expander, de-esser, EQ, compressor, limiter. MixCast already does the first two as **Cut low rumble** and **Silence between words**. **Sound → Advanced → Radio voice** adds the other four, in that order, after the clean-up:
 
 | Stage | Default | What it does |
 |---|---|---|
@@ -208,14 +221,17 @@ Measured on test signals:
 - All four stages together use under 1% of one CPU core.
 
 ## Learns your voice
-Discord's Krisp is a neural network. MixCast does it with plain statistics instead: the **Learns your voice** section of the mic's **Noise** menu builds a profile of *your* voice while you talk, and keeps updating it.
+Discord's Krisp is a neural network. MixCast does it with plain statistics instead: **Sound → Advanced → Learns your voice** builds a profile of *your* voice while you talk, and keeps updating it.
 
 **What it learns.** It learns only from moments it's sure are you: a clear pitch, held for at least 20 ms, well above the room.
 - Your **pitch range** (5th to 95th percentile)
 - Your normal **speaking level**
 - Your voice's **spectrum**: where your voice has energy and where it never does
+- Your voice's **sound dictionary**, if **Remove keyboard & clicks** is on (below)
 
-It needs about 20 seconds of speech, roughly a minute of talking, before it's used. The menu shows progress, then something like *Knows your voice: 108–146 Hz, 3 min heard*. After that it's a moving average over your last ~5 minutes of speech, so it follows you when you're tired, ill, shouting in a game, or on a new mic. Learning only accepts pitches near what it already knows, so a TV or another person can't slowly take it over. **Forget my voice…** starts again.
+**Each mic learns separately.** A headset and a desk mic hear you differently, so switching mics brings back what that mic learned instead of starting over.
+
+It needs about 20 seconds of speech, roughly a minute of talking, before it's used. The menu shows progress, then something like *Knows your voice: 108–146 Hz, 3 min heard*. After that it's a moving average over your last ~5 minutes of speech, so it follows you when you're tired, ill, shouting in a game, or on a new mic. Learning only accepts pitches near what it already knows, so a TV or another person can't slowly take it over. **Forget my voice on this mic…** starts again.
 
 **What it changes**
 
@@ -223,6 +239,7 @@ It needs about 20 seconds of speech, roughly a minute of talking, before it's us
 |---|---|---|
 | **Learn my voice** | On | Once trained: only *your* pitch range (4 semitones under your low, 6 over your high) counts as voice for **Voice only**, for ducking and for the Talking lamp, so keyboard, clicks and other voices don't duck your music. The Gentle/Firm gate threshold sits a set share of the way from your room to your voice, so a noisy room doesn't cut your quiet words. Noise suppression is stricter (up to twice as hard and 6 dB deeper) in frequencies where your voice is 15–40 dB below its strongest band. The **Voice sensitivity** slider is used only until it's trained. |
 | **Auto level** | Off | Brings your speech to a steady level (about −26 dBFS while talking), from −12 to +20 dB of gain, changing over seconds, not words. Needs Learn my voice. |
+| **Remove keyboard & clicks** | Off | See below. Needs Learn my voice. |
 | **Clean while I talk** | Off | Tracks your pitch to a fraction of a sample and averages each moment with one and two pitch periods earlier, below 4 kHz. Your harmonics line up and pass; noise between them drops. It works only as hard as the room is noisy (fully at 10 dB voice-to-noise, not at all above 25 dB), so a clean voice is left alone. |
 
 Measured on a synthetic talker (pitch 100–150 Hz, syllables, consonants) with background noise:
@@ -234,16 +251,33 @@ Measured on a synthetic talker (pitch 100–150 Hz, syllables, consonants) with 
 | Noise between words, Medium suppression + learned spectrum | 2–3 dB quieter than Medium alone; voice unchanged |
 | Auto level | −50 dBFS speech → −30 dBFS (+20 dB, the limit); −24 → −26 dBFS |
 | Clean while I talk, fan noise | about 1.5 dB less noise below 4 kHz while it works; on a clean voice it stays off |
-| CPU, everything on | under 2% of one core |
+| CPU, everything on except keyboard removal | under 2% of one core |
 
 **Limits, honestly.**
 - **Learn my voice** helps most with *what counts as you*: gating, ducking, other voices. It only trims noise a little.
 - **Clean while I talk** is modest. It needs a pitch it can follow, so it works on vowels, not on "s", "f" or "t", and it backs off in very heavy noise where the pitch is lost. It doesn't touch clicks, which are mostly above 4 kHz. A neural network still does better with noise *during* your words.
 - **Same pitch, different person:** someone with a voice very like yours still counts as you.
-- **One profile, not one per mic.** It re-learns over a few minutes after you change mic.
 - **The console version** learns per session and doesn't save the profile.
 
-The profile is about 1 KB and is saved as `voice/profile` in `MixCast.ini` every minute and when you quit. It never leaves your PC.
+Each mic's profile is saved under `voice/profiles/` in `MixCast.ini` every minute and when you quit. It's about 1 KB, or 34 KB once it holds a sound dictionary. It never leaves your PC.
+
+### Remove keyboard & clicks
+Noise suppression learns *steady* sounds, and the gate works only *between* your words. This one goes after keypresses, mouse clicks and taps, including the ones under your voice. It uses non-negative matrix factorization (NMF), a classic method from about 2000, not a neural network:
+
+- **Two small sound dictionaries.** One holds your voice: 24 building blocks for vowels, learned from clearly pitched moments, and 8 for consonants, learned from the steady hiss just before a vowel starts. It's saved with your profile and keeps improving over days. The other holds your room: 16 building blocks learned in the gaps between your sentences (keyboard, mouse, desk, fan). It's relearned every session, so it follows what's around you now.
+- **Every 5 ms** the sound is explained as a mix of the two, and only the part your voice explains is kept, up to 20 dB less for the rest.
+- **Clicks, not consonants.** A keypress lasts 10–20 ms, but a "t" or "k" is a sharp burst too. So the strong cut applies only for ~20 ms after something that isn't you starts, and then lets go. The consonant building blocks keep your "s", "t" and "f" intact.
+
+Measured on a synthetic talker with a synthetic keyboard (7 keypresses a second, including while talking), after a minute of learning:
+
+| Test | Without | With |
+|---|---|---|
+| Keyboard between words | −40 to −51 dBFS | 4–8 dB quieter |
+| Keyboard while talking | 7.5–20 dB under your voice | up to 3.3 dB better (one case 0.6 dB worse) |
+| Change to a clean voice | | 20–29 dB below your voice, consonants 16–18 dB below them: not audible |
+| CPU | 1.9% of one core | 2.8% of one core |
+
+It helps most **between and around your words**. For the room between sentences, **Silence between words → Voice only** still does the heavy lifting, which is why the Noisy room preset uses both. Under your words it's a modest gain: a keypress inside a vowel shares the same frequencies, and telling them apart there is where a neural network still wins. These numbers come from synthetic sounds; a real keyboard and voice will differ, so try it and keep what sounds best.
 
 ## Console version (mixcast-cli.exe)
 ```powershell
@@ -273,6 +307,8 @@ In Discord, set **Settings → Voice & Video → Input Device** to **CABLE Outpu
 | `l` | Learn my voice on/off |
 | `v` | Auto level on/off |
 | `h` | Clean while I talk on/off |
+| `b` | Remove keyboard & clicks on/off |
+| `s` | Next mic sound preset (Natural / Clean / Studio / Noisy room) |
 | `q` | Quit |
 
 - **Ducking:** apps marked **ducks** get quieter while you talk (music, games). Apps marked **no-duck** stay at full level (Soundpad, sound effects).

@@ -42,7 +42,8 @@ Use a VM that has **never** had Visual Studio or Qt installed; ideally, take a s
 - [ ] MixCast opens with no "missing DLL" errors.
 - [ ] **Send to** shows VB-CABLE, and the top right shows red **Live**.
 - [ ] The mic meter moves when you speak.
-- [ ] Mic strip → Noise → Voice only: tapping the desk stays silent.
+- [ ] Mic strip → **Sound → Noisy room**: tapping the desk stays silent.
+- [ ] The mic strip's clean-up display moves when you speak (amber) and shows red when there's background noise.
 
 *Features*
 - [ ] **Add app:** play a YouTube video in Edge, add `msedge.exe`, and its meter moves.

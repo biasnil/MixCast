@@ -6,6 +6,8 @@
 //   - speech level        -> gate threshold, auto level
 //   - average spectrum    -> where your voice has energy, so the noise
 //                            suppressor can be stricter everywhere else
+//   - voice atoms         -> the voice half of "Remove keyboard & clicks"
+//                            (sound_dictionary.h)
 //
 // Learning is fast at first (a plain average) and then becomes a moving
 // average over the last ~5 minutes of voiced speech, so the profile follows
@@ -14,6 +16,7 @@
 
 #include <array>
 #include <string>
+#include <vector>
 
 namespace mixcast {
 
@@ -31,6 +34,7 @@ struct VoiceProfile
     float speechDb    = -30.0f;                     // typical speech level (hop RMS, dBFS)
     float voicedSec   = 0.0f;                       // voiced speech heard so far
     float spectrumSec = 0.0f;                       // speech hops in the spectrum average
+    std::vector<float> voiceAtoms;                  // SoundDictionary voice atoms, or empty
 
     bool Trained() const { return voicedSec >= kTrainedSec; }
 

@@ -50,6 +50,7 @@ private:
     mixcast::SourceControls* ctl_;
     mixcast::VoiceSettings*  voice_ = nullptr;
     QToolButton*             noiseBtn_ = nullptr;
+    class CleanupScope*      scope_ = nullptr;     // mic only
     int                      shownNoise_ = -1, shownGate_ = -1;
     bool                     shownRumble_ = false;
     int                      shownPolish_ = -1;

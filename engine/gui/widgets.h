@@ -13,7 +13,7 @@ class LevelMeter : public QWidget
 public:
     explicit LevelMeter(QWidget* parent = nullptr);
     void  setLevel(float linearPeak);   // call ~30x per second
-    QSize sizeHint() const override { return { 12, 220 }; }
+    QSize sizeHint() const override { return { 12, 170 }; }
     QSize minimumSizeHint() const override { return { 10, 120 }; }
 
 protected:
@@ -34,7 +34,7 @@ class Fader : public QAbstractSlider
     Q_OBJECT
 public:
     explicit Fader(QWidget* parent = nullptr);
-    QSize sizeHint() const override { return { 62, 220 }; }
+    QSize sizeHint() const override { return { 62, 170 }; }
     QSize minimumSizeHint() const override { return { 62, 120 }; }
 
     static float DbFromValue(int v) { return v / 10.0f; }
@@ -73,6 +73,27 @@ protected:
 
 private:
     bool lit_ = false;
+};
+
+// What the mic clean-up is doing, live: one column per frequency band.
+// Amber = your voice that's kept; red above it = background and clicks removed.
+class CleanupScope : public QWidget
+{
+    Q_OBJECT
+public:
+    static constexpr int kBands = 20;
+    explicit CleanupScope(QWidget* parent = nullptr);
+    void  setBands(const float* inDb, const float* outDb, float removedDb);   // ~30x per second
+    QSize sizeHint() const override { return { 116, 40 }; }
+
+protected:
+    void paintEvent(QPaintEvent*) override;
+
+private:
+    float         in_[kBands], out_[kBands];
+    float         removedDb_ = 0.0f;
+    QElapsedTimer clock_;
+    qint64        lastMs_ = 0;
 };
 
 // ---------------------------------------------------------------------------

@@ -24,6 +24,8 @@ add_library(mixcast_core STATIC
     src/voice_processor.h src/voice_processor.cpp
     src/voice_polish.h   src/voice_polish.cpp
     src/voice_profile.h  src/voice_profile.cpp
+    src/sound_dictionary.h src/sound_dictionary.cpp
+    src/mic_presets.h
     src/audio_decoder.h  src/audio_decoder.cpp
     src/audio_encoder.h  src/audio_encoder.cpp
     src/resampler.h      src/resampler.cpp

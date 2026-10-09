@@ -19,6 +19,9 @@
 //   - set the Gentle/Firm gate threshold between your room and your voice
 //   - make the noise suppressor stricter where your voice never has energy
 //   - "Auto level": bring your speech to a steady level, whatever the mic gain
+// "Remove keyboard & clicks" (sound_dictionary.h) learns your voice and the
+// sounds around you between sentences, and keeps only the voice part of each
+// moment, so sudden noises go too, even under your words.
 // "Clean while I talk" is a pitch-tracked comb filter: while you speak a
 // vowel it keeps your harmonics and turns down what lies between them, so
 // noise under your voice drops too (the STFT's 94 Hz bins are too coarse to
@@ -36,6 +39,7 @@
 #include <cstdint>
 #include <mutex>
 
+#include "sound_dictionary.h"
 #include "voice_polish.h"
 #include "voice_profile.h"
 
@@ -57,6 +61,7 @@ struct VoiceSettings
     std::atomic<bool>  learnVoice{true};
     std::atomic<bool>  autoLevel{false};
     std::atomic<bool>  cleanWhileTalking{false};
+    std::atomic<bool>  removeClicks{false};
 
     // Published by the processor (read-only for the UI).
     std::atomic<float> noiseFloorDb{-90.0f};   // estimated background level
@@ -73,6 +78,12 @@ struct VoiceSettings
     std::atomic<float> pitchHiHz{0.0f};
     std::atomic<float> speechLevelDb{0.0f};
     std::atomic<float> autoGainDb{0.0f};
+
+    // "What's being removed": the mic in 20 bands (100 Hz - 16 kHz) before
+    // and after noise suppression and click removal, in dBFS.
+    static constexpr int kScopeBands = 20;
+    std::array<std::atomic<float>, kScopeBands> scopeInDb{};
+    std::array<std::atomic<float>, kScopeBands> scopeOutDb{};
 
     // The learned profile. The UI loads/saves it; the capture thread adopts a
     // newly loaded one and publishes what it learns, without ever blocking.
@@ -177,6 +188,19 @@ private:
     std::array<float, kBins> fpFloor_{};  // per-bin extra floor (linear)
     std::array<float, kBins> hopRelDb_{}; // this hop's voice-band-relative spectrum
     int          speakHops_ = 0;          // hops since you last spoke a vowel (hold)
+
+    // Remove keyboard & clicks.
+    static constexpr int kRoomDelay = 24;   // hops (128 ms) of no voice after a "room" hop...
+    static constexpr int kRoomAfter = 36;   // ...and 192 ms since the last voice before it
+                                            // (so trailing "s" and leading consonants aren't room)
+    SoundDictionary dict_;
+    std::array<std::array<float, kBins>, kRoomDelay> magRing_{};
+    int   magPos_ = 0;
+    int   hopsSinceVoiced_ = 0;
+    std::array<float, kBins> clickGain_{};
+    std::array<int, VoiceSettings::kScopeBands + 1> scopeEdge_{};   // first bin of each band
+    int   sinceOnset_ = 1000;             // hops since a "not you" sound last started
+    float roomAvg_ = 0.0f;                // recent "not you" energy
 
     // Auto level.
     float autoGain_ = 1.0f, autoTarget_ = 1.0f;

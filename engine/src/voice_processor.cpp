@@ -53,6 +53,13 @@ constexpr int   kExchangeHops = 94;      // swap profile with the UI every ~0.5 
 constexpr float kAutoTargetDb = -30.0f;  // learned speech level it aims for (~-26 dBFS RMS while talking)
 const float kAutoGainCoef     = Coef(0.5f);
 
+// Remove keyboard & clicks.
+constexpr float kClickFloor = 0.1f;      // turns sounds that aren't you down by up to 20 dB
+constexpr int   kClickHops  = 4;         // a click lasts ~20 ms: cut this long after it starts...
+constexpr int   kClickFade  = 4;         // ...then let go over ~20 ms. Consonants last 50-150 ms
+                                         // and sound much like keys, so they must get through.
+constexpr float kOnsetJump  = 3.0f;      // "not you" energy this many times its recent level = a click
+
 // Clean while I talk: weights of one and two periods back at full strength.
 constexpr float kCombW1     = 0.4f;
 constexpr float kCombW2     = 0.2f;
@@ -111,7 +118,17 @@ VoiceProcessor::VoiceProcessor()
     noise_.fill(1e-10f);
     fpOver_.fill(1.0f);
     fpFloor_.fill(1.0f);
+    clickGain_.fill(1.0f);
     combSplit_ = VoicePolish::Biquad::LowPass(4000.0f, 0.7071f);
+
+    // Scope bands: log-spaced 100 Hz - 16 kHz, at least one bin each.
+    constexpr int nb = VoiceSettings::kScopeBands;
+    for (int b = 0; b <= nb; b++)
+    {
+        const float hz = 100.0f * std::pow(160.0f, static_cast<float>(b) / nb);
+        scopeEdge_[b] = static_cast<int>(std::lround(hz / (kFs / kFft)));
+        if (b > 0) scopeEdge_[b] = std::max(scopeEdge_[b], scopeEdge_[b - 1] + 1);
+    }
 }
 
 float VoiceProcessor::HighPass(float x)
@@ -261,12 +278,63 @@ float VoiceProcessor::Comb(float x)
 // adopt one the UI just loaded (or reset), otherwise publish what was learned.
 void VoiceProcessor::LearnAndExchange(VoiceSettings& s, bool learn, bool voicedHop, float f0, float rmsDb)
 {
+    const bool clicks = learn && s.removeClicks.load(std::memory_order_relaxed);   // dictionaries learn only when used
     if (learn)
     {
         if (voicedHop && f0 >= learnLo_ && f0 <= learnHi_ && rmsDb > floorDb_ + kLearnAboveDb)
             work_.LearnPitch(f0, rmsDb);
         if (speakHops_ > 0 && rmsDb > floorDb_ + 10.0f)
             work_.LearnSpectrum(hopRelDb_.data());
+
+        // Voice atoms learn only from clearly pitched hops, with the steady
+        // noise taken out: the moments around words can hold a keypress too,
+        // and the voice atoms must never learn to explain those.
+        if (clicks && voicedHop && rmsDb > floorDb_ + kLearnAboveDb)
+        {
+            std::array<float, kBins> v{};
+            const auto& mag = magRing_[(magPos_ + kRoomDelay - 3) % kRoomDelay];   // pitch is judged 2 hops later than analysed
+            for (int k = 0; k < kBins; k++) v[k] = std::max(mag[k] - std::sqrt(noise_[k]), 0.0f);
+            dict_.LearnVowel(v.data());
+        }
+
+        // A vowel just started: the hops before it may hold a consonant.
+        // Learn the ones that are steady hiss (a keypress fades within a hop,
+        // so it can't pass this) and mostly above 2.5 kHz.
+        if (clicks && voicedRun_ == 4)
+        {
+            const int hf = static_cast<int>(2500.0f / (kFs / kFft));
+            float e[kRoomDelay] = {}, eHigh[kRoomDelay] = {};
+            std::array<std::array<float, kBins>, kRoomDelay> clean{};
+            for (int back = 0; back < kRoomDelay; back++)        // back = 0: newest hop
+            {
+                const auto& mag = magRing_[(magPos_ + kRoomDelay - 1 - back) % kRoomDelay];
+                for (int k = 0; k < kBins; k++)
+                {
+                    const float c = std::max(mag[k] - std::sqrt(noise_[k]), 0.0f);
+                    clean[back][k] = c;
+                    e[back] += c * c;
+                    if (k >= hf) eHigh[back] += c * c;
+                }
+            }
+            float bg = 0.0f;
+            for (int k = 0; k < kBins; k++) bg += noise_[k];
+            // The vowel began ~6 hops before now (4 voiced hops + 2 of STFT delay);
+            // look at the ~100 ms before that.
+            for (int back = 7; back < 26 && back + 1 < kRoomDelay; back++)
+            {
+                const bool loud   = e[back] > 4.0f * bg;
+                const bool hissy  = eHigh[back] > 0.5f * e[back];
+                const bool steady = e[back - 1] > 0.25f * e[back] && e[back + 1] > 0.25f * e[back]
+                                 && e[back - 1] < 4.0f * e[back] && e[back + 1] < 4.0f * e[back];
+                if (loud && hissy && steady) dict_.LearnConsonant(clean[back].data());
+            }
+        }
+
+        // Room atoms learn from the oldest hop in the ring (kRoomDelay ago), if
+        // nobody's voice came within kRoomAfter hops before it or any time since.
+        hopsSinceVoiced_ = (speakHops_ == kSpeakHoldHops) ? 0 : hopsSinceVoiced_ + 1;
+        if (clicks && hops_ > 60 && hopsSinceVoiced_ > kRoomDelay + kRoomAfter)
+            dict_.LearnRoom(magRing_[magPos_].data());
     }
 
     if (--exchangeIn_ > 0) return;
@@ -278,9 +346,13 @@ void VoiceProcessor::LearnAndExchange(VoiceSettings& s, bool learn, bool voicedH
     {
         work_ = s.profile_;
         seenVersion_ = s.profileVersion_;
+        dict_.SetVoiceAtoms(work_.voiceAtoms);
     }
     else if (learn)
+    {
+        dict_.CopyVoiceAtoms(work_.voiceAtoms);
         s.profile_ = work_;
+    }
     lk.unlock();
 
     useProfile_ = learn && work_.Trained();
@@ -499,6 +571,39 @@ void VoiceProcessor::ProcessHop(VoiceSettings& s)
         g[k] = gk;
     }
 
+    // ---- Keyboard & clicks: keep only what the voice atoms explain ----------
+    // Applied as a ceiling on the noise suppressor's gain: steady noise is
+    // already handled there; this catches what it lets through.
+    std::array<float, kBins> mag{};
+    for (int k = 0; k < kBins; k++) mag[k] = std::abs(spec_[k]);
+    magRing_[magPos_] = mag;
+    magPos_ = (magPos_ + 1) % kRoomDelay;
+    if (s.removeClicks.load(std::memory_order_relaxed) && useProfile_ && dict_.Ready())
+    {
+        std::array<float, kBins> mask{};
+        dict_.Separate(mag.data(), mask.data());
+
+        // Did something that isn't you just start, on top of the steady background?
+        float evE = 0.0f, bgE = 0.0f;
+        for (int k = 0; k < kBins; k++)
+        {
+            evE += (1.0f - mask[k]) * std::max(std::norm(spec_[k]) - noise_[k], 0.0f);
+            bgE += noise_[k];
+        }
+        const bool onset = evE > kOnsetJump * roomAvg_ + 0.5f * bgE;
+        roomAvg_ = 0.9f * roomAvg_ + 0.1f * evE;
+        sinceOnset_ = onset ? 0 : std::min(sinceOnset_ + 1, 1000);
+        const float strength = std::clamp(1.0f - static_cast<float>(sinceOnset_ + 1 - kClickHops) / kClickFade, 0.0f, 1.0f);
+
+        for (int k = 0; k < kBins; k++)
+        {
+            const float m = std::max(1.0f - strength * (1.0f - mask[k]), kClickFloor);
+            clickGain_[k] = (m < clickGain_[k]) ? m : 0.5f * clickGain_[k] + 0.5f * m;   // drop at once, recover over ~2 hops
+        }
+    }
+    else
+        clickGain_.fill(1.0f);
+
     for (int k = 0; k < kBins; k++)
     {
         // Smooth across neighbouring bins, then over time (fast up, slower down):
@@ -507,11 +612,27 @@ void VoiceProcessor::ProcessHop(VoiceSettings& s)
         const float gs = 0.25f * gl + 0.5f * g[k] + 0.25f * gr;
         gain_[k] = (gs > gain_[k]) ? gs : 0.65f * gain_[k] + 0.35f * gs;
 
+        const float gk = std::min(gain_[k], clickGain_[k]);
         const float p = std::norm(spec_[k]);
         inE  += p;
-        outE += gain_[k] * gain_[k] * p;
-        spec_[k] *= gain_[k];
+        outE += gk * gk * p;
+        spec_[k] *= gk;
     }
+    // Scope: what came in and what's left, per band (spec_ now holds the output).
+    for (int b = 0; b < VoiceSettings::kScopeBands; b++)
+    {
+        float in = 0.0f, out = 0.0f;
+        for (int k = scopeEdge_[b]; k < scopeEdge_[b + 1] && k < kBins; k++)
+        {
+            in  += mag[k] * mag[k];
+            out += std::norm(spec_[k]);
+        }
+        // Window gain (sum of sqrt-Hann^2 = N/2) brings this to roughly dBFS.
+        const float scale = 2.0f / (kFft * 0.5f * kFft);
+        s.scopeInDb[b].store(10.0f * std::log10(in * scale + 1e-12f), std::memory_order_relaxed);
+        s.scopeOutDb[b].store(10.0f * std::log10(out * scale + 1e-12f), std::memory_order_relaxed);
+    }
+
     for (int k = 1; k < kFft / 2; k++) spec_[kFft - k] = std::conj(spec_[k]);
 
     Fft(spec_.data(), true);

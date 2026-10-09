@@ -8,7 +8,14 @@
 - Faders with brushed-metal caps, an amber index line and a printed dB scale.
 - Amber LCD-style dB readouts, a glowing red LIVE pill, segmented tabs and an amber-accented wordmark.
 - Soundboard pads lit from above, with keycap-style hotkeys and an amber glow while playing.
-- The mic's Noise menu is shorter: Radio voice and Learns your voice are now submenus that show their status.
+- The mic's menu is shorter: Radio voice and Learns your voice are now submenus that show their status.
+
+**Simpler**
+- One choice for your mic's sound: **Natural**, **Clean**, **Studio** or **Noisy room**. Every individual setting is still under **Sound → Advanced**; changing one shows **Custom**.
+- A small live display on the mic strip shows what's being removed: amber is your voice, red is noise.
+- The Talking lamp moved into the mic strip's header.
+- Once MixCast knows your voice, the **Voice sensitivity** slider gives way to "Follows your voice", since ducking then follows your voice.
+- Console version: `s` steps through the presets.
 
 **Radio voice**
 - New **Radio voice** section in the mic's **Noise** menu: **De-esser**, **Voice EQ**, **Compressor** and **Limiter**, run after the clean-up in broadcast order. Together with the rumble filter and the between-words gate, the mic now has the full six-stage radio chain.
@@ -19,9 +26,11 @@
 - **Learn my voice** (on): learns your pitch range, speaking level and voice spectrum from moments it's sure are you, and keeps following your voice as it changes. Once trained, only your pitch range counts as voice (Voice only gate, ducking, Talking lamp), the gate threshold sits between your room and your voice, and noise suppression is stricter where your voice never has energy.
 - **Auto level** (off): keeps your voice at a steady level whatever the mic gain.
 - **Clean while I talk** (off): a pitch-tracked comb that turns down noise between your harmonics during vowels, only as hard as the room is noisy.
-- **Forget my voice…** starts learning again. The profile is saved in `MixCast.ini`.
+- **Remove keyboard & clicks** (off; on in Noisy room): learned sound dictionaries for your voice and your room (NMF, no AI) cut keypresses, mouse clicks and taps, including under your words, while keeping your consonants.
+- **Each mic learns separately**, so switching mics doesn't start over.
+- **Forget my voice on this mic…** starts learning again. Profiles are saved in `MixCast.ini`.
 - With these off, the mic sounds exactly as before.
-- Console version: `l`, `v` and `h` toggle them.
+- Console version: `l`, `v`, `h` and `b` toggle them.
 
 ## 1.0.0 — first release
 

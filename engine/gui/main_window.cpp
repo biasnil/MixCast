@@ -13,6 +13,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QCryptographicHash>
 #include <QDesktopServices>
 #include <QUrl>
 #include <QFileIconProvider>
@@ -76,6 +77,13 @@ QIcon IconForExe(const QString& path)
         if (!ic.isNull()) return ic;
     }
     return theme::AppFallbackIcon();
+}
+
+// Each mic has its own voice profile: a headset and a desk mic hear you differently.
+QString ProfileKey(const QString& micId)
+{
+    const QByteArray h = QCryptographicHash::hash(micId.toUtf8(), QCryptographicHash::Md5).toHex().left(16);
+    return QStringLiteral("voice/profiles/") + QString::fromLatin1(h);
 }
 
 QSlider* MakeHSlider(int lo, int hi, int value)
@@ -424,9 +432,9 @@ QWidget* MainWindow::buildDuckBar()
     l->addWidget(duckDepthLbl_);
 
     l->addSpacing(12);
-    auto* thLbl = new QLabel(QStringLiteral("Voice sensitivity"));
-    thLbl->setObjectName(QStringLiteral("Muted"));
-    l->addWidget(thLbl);
+    duckThreshName_ = new QLabel(QStringLiteral("Voice sensitivity"));
+    duckThreshName_->setObjectName(QStringLiteral("Muted"));
+    l->addWidget(duckThreshName_);
     duckThresh_ = MakeHSlider(-60, -15, -40);
     duckThresh_->setInvertedAppearance(true);   // right = more sensitive (lower threshold)
     duckThresh_->setInvertedControls(true);
@@ -437,6 +445,14 @@ QWidget* MainWindow::buildDuckBar()
     duckThreshLbl_ = new QLabel;
     duckThreshLbl_->setFixedWidth(60);
     l->addWidget(duckThreshLbl_);
+
+    // Once your voice is learned, ducking follows it and the slider has nothing to do.
+    duckFollows_ = new QLabel(QStringLiteral("Follows your voice"));
+    duckFollows_->setObjectName(QStringLiteral("Muted"));
+    duckFollows_->setToolTip(QStringLiteral("MixCast knows your voice, so apps duck only when you speak: "
+                                            "keyboard, clicks and other people don't count."));
+    duckFollows_->hide();
+    l->addWidget(duckFollows_);
 
     l->addStretch(1);
     duckNow_ = new QLabel;
@@ -563,14 +579,11 @@ void MainWindow::startEngine()
     engine_->controls.voice.learnVoice        = s.value(QStringLiteral("voice/learn"),     true).toBool();
     engine_->controls.voice.autoLevel         = s.value(QStringLiteral("voice/autoLevel"), false).toBool();
     engine_->controls.voice.cleanWhileTalking = s.value(QStringLiteral("voice/cleanTalk"), false).toBool();
-    {
-        VoiceProfile learned;
-        if (VoiceProfile::Deserialize(s.value(QStringLiteral("voice/profile")).toByteArray().toStdString(), learned))
-            engine_->controls.voice.LoadProfile(learned);
-    }
+    engine_->controls.voice.removeClicks      = s.value(QStringLiteral("voice/clicks"),    false).toBool();
 
     // ---- Mic --------------------------------------------------------------
     // No saved choice -> default mic. Saved "" -> user chose no mic.
+    profileMicId_.clear();
     std::optional<Endpoint> mic;
     if (s.contains(QStringLiteral("mic/id")))
     {
@@ -585,6 +598,7 @@ void MainWindow::startEngine()
     }
     if (mic)
     {
+        loadVoiceProfile(QString::fromStdWString(mic->id));
         SourceId id = engine_->AddSource(MakeMic(*mic), true,
                                          s.value(QStringLiteral("mic/gain"), 0.0f).toFloat(), false);
         engine_->Controls(id)->enabled = s.value(QStringLiteral("mic/enabled"), true).toBool();
@@ -689,6 +703,15 @@ void MainWindow::tick()
 
     outMeter_->setLevel(engine_->meters.outPeak);
 
+    const bool byVoice = engine_->controls.voice.profileInUse;
+    if (duckFollows_->isHidden() == byVoice)
+    {
+        duckFollows_->setVisible(byVoice);
+        for (QWidget* w : { static_cast<QWidget*>(duckThreshName_), static_cast<QWidget*>(duckThresh_),
+                            static_cast<QWidget*>(duckThreshLbl_) })
+            w->setVisible(!byVoice);
+    }
+
     const float duckDb = LinToDb(engine_->meters.duckGain);
     duckNow_->setText(duckDb < -0.5f ? QStringLiteral("Apps lowered %1").arg(FormatDb(duckDb))
                                      : QStringLiteral("Apps at full level"));
@@ -777,6 +800,11 @@ void MainWindow::onMicChosen(int index)
 
     QSettings().setValue(QStringLiteral("mic/id"), id);
     if (!engine_) return;
+
+    // Keep what was learned about the old mic, and bring back this one's.
+    saveVoiceProfile();
+    if (id.isEmpty()) profileMicId_.clear();
+    else              loadVoiceProfile(id);
 
     SourceId oldMic = 0;
     for (const auto& s : engine_->Status()) if (s.isMic) oldMic = s.id;
@@ -920,6 +948,29 @@ void MainWindow::loadGlobalSettings()
     masterDb_->setText(FormatDb(Fader::DbFromValue(masterFader_->value())));
 }
 
+void MainWindow::loadVoiceProfile(const QString& micId)
+{
+    if (!engine_) return;
+    QSettings s;
+    QByteArray bytes = s.value(ProfileKey(micId)).toByteArray();
+    if (bytes.isEmpty())   // older versions kept one profile for every mic: it goes to the first mic used
+        bytes = s.value(QStringLiteral("voice/profile")).toByteArray();
+
+    VoiceProfile learned;
+    if (!VoiceProfile::Deserialize(bytes.toStdString(), learned)) learned = VoiceProfile{};
+    engine_->controls.voice.LoadProfile(learned);
+    profileMicId_ = micId;
+}
+
+void MainWindow::saveVoiceProfile()
+{
+    if (!engine_ || profileMicId_.isEmpty()) return;
+    const std::string learned = engine_->controls.voice.CopyProfile().Serialize();
+    QSettings s;
+    s.setValue(ProfileKey(profileMicId_), QByteArray(learned.data(), static_cast<int>(learned.size())));
+    s.remove(QStringLiteral("voice/profile"));   // migrated
+}
+
 void MainWindow::saveSettingsSoon()
 {
     saveTimer_.start();
@@ -947,10 +998,8 @@ void MainWindow::saveSettings()
     s.setValue(QStringLiteral("voice/learn"),      engine_->controls.voice.learnVoice.load());
     s.setValue(QStringLiteral("voice/autoLevel"),  engine_->controls.voice.autoLevel.load());
     s.setValue(QStringLiteral("voice/cleanTalk"),  engine_->controls.voice.cleanWhileTalking.load());
-    {
-        const std::string learned = engine_->controls.voice.CopyProfile().Serialize();
-        s.setValue(QStringLiteral("voice/profile"), QByteArray(learned.data(), static_cast<int>(learned.size())));
-    }
+    s.setValue(QStringLiteral("voice/clicks"),     engine_->controls.voice.removeClicks.load());
+    saveVoiceProfile();
 
     const auto st = engine_->Status();
     s.remove(QStringLiteral("apps"));

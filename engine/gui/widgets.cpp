@@ -300,6 +300,90 @@ void TallyLamp::paintEvent(QPaintEvent*)
 }
 
 // ============================================================================
+// CleanupScope
+// ============================================================================
+static constexpr float kScopeFloorDb = -100.0f;
+static constexpr float kScopeTopDb   = -10.0f;
+
+CleanupScope::CleanupScope(QWidget* parent) : QWidget(parent)
+{
+    std::fill(std::begin(in_), std::end(in_), kScopeFloorDb);
+    std::fill(std::begin(out_), std::end(out_), kScopeFloorDb);
+    clock_.start();
+    setToolTip(QStringLiteral("What the clean-up is doing right now, low to high pitch.\n"
+                              "Amber: your voice, kept. Red: background and clicks being removed."));
+}
+
+void CleanupScope::setBands(const float* inDb, const float* outDb, float removedDb)
+{
+    const qint64 now = clock_.elapsed();
+    const float fall = 40.0f * std::min(0.2f, (now - lastMs_) / 1000.0f);   // 40 dB/s, like a meter
+    lastMs_ = now;
+    for (int b = 0; b < kBands; b++)
+    {
+        const float i = std::clamp(inDb[b], kScopeFloorDb, kScopeTopDb);
+        const float o = std::clamp(std::min(outDb[b], inDb[b]), kScopeFloorDb, kScopeTopDb);
+        in_[b]  = (i > in_[b])  ? i : std::max(i, in_[b] - fall);
+        out_[b] = (o > out_[b]) ? o : std::max(o, out_[b] - fall);
+        out_[b] = std::min(out_[b], in_[b]);
+    }
+    removedDb_ = removedDb;
+    update();
+}
+
+void CleanupScope::paintEvent(QPaintEvent*)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    const QRectF well = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+    p.setPen(QPen(QColor(0x0E, 0x10, 0x13), 1.0));
+    p.setBrush(theme::Slot);
+    p.drawRoundedRect(well, 4, 4);
+    p.setPen(QPen(QColor(0x35, 0x3C, 0x46), 1.0));
+    p.drawLine(QPointF(well.left() + 4, well.bottom()), QPointF(well.right() - 4, well.bottom()));
+
+    const QRectF area = well.adjusted(4, 4, -4, -3);
+    const qreal slot = area.width() / kBands;
+    auto yOf = [&](float db) {
+        const qreal t = (db - kScopeFloorDb) / (kScopeTopDb - kScopeFloorDb);
+        return area.bottom() - t * area.height();
+    };
+
+    QColor removed = theme::Tally;
+    removed.setAlpha(150);
+    p.setPen(Qt::NoPen);
+    for (int b = 0; b < kBands; b++)
+    {
+        const qreal x = area.left() + b * slot + 0.5;
+        const qreal w = slot - 1.5;
+        const qreal yIn = yOf(in_[b]), yOut = yOf(out_[b]);
+        if (yOut - yIn > 0.5)
+        {
+            p.setBrush(removed);
+            p.drawRoundedRect(QRectF(x, yIn, w, yOut - yIn), 1, 1);
+        }
+        if (area.bottom() - yOut > 0.5)
+        {
+            QLinearGradient g(QPointF(0, yOut), QPointF(0, area.bottom()));
+            g.setColorAt(0.0, theme::AmberHot);
+            g.setColorAt(1.0, theme::Amber.darker(160));
+            p.setBrush(g);
+            p.drawRoundedRect(QRectF(x, yOut, w, area.bottom() - yOut), 1, 1);
+        }
+    }
+
+    // How much is coming out overall, top right.
+    if (removedDb_ < -0.5f)
+    {
+        p.setFont(theme::Font(6.5, QFont::DemiBold));
+        p.setPen(QColor(0xFF, 0x8A, 0x8D));
+        p.drawText(area.adjusted(0, -2, 0, 0), Qt::AlignRight | Qt::AlignTop,
+                   QStringLiteral("−%1 dB").arg(std::lround(-removedDb_)));
+    }
+}
+
+// ============================================================================
 // SoundPad
 // ============================================================================
 SoundPad::SoundPad(QWidget* parent) : QAbstractButton(parent)
