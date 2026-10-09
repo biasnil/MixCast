@@ -31,6 +31,7 @@
 #include <QSlider>
 #include <QStyle>
 #include <QSystemTrayIcon>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
