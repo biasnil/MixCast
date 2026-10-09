@@ -43,15 +43,14 @@ void LevelMeter::paintEvent(QPaintEvent*)
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    // Recessed well: dark body, shadow at the top, a lit lip at the bottom.
+    // Dark well.
     const QRectF well = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
-    p.setPen(QPen(QColor(0x0E, 0x10, 0x13), 1.0));
+    p.setPen(QPen(QColor(0x0F, 0x15, 0x1A), 1.0));
     p.setBrush(theme::Slot);
-    p.drawRoundedRect(well, 3, 3);
-    p.setPen(QPen(QColor(0x35, 0x3C, 0x46), 1.0));
-    p.drawLine(QPointF(well.left() + 3, well.bottom()), QPointF(well.right() - 3, well.bottom()));
+    p.drawRoundedRect(well, 4, 4);
 
-    const qreal pad = 2.0, segH = 4.0, gap = 2.0;
+    // Fine LED ladder: green, yellow in the top 12 dB, coral in the top 3.
+    const qreal pad = 3.0, segH = 3.0, gap = 1.5;
     const int   n = std::max(1, static_cast<int>((well.height() - 2 * pad + gap) / (segH + gap)));
     const qreal step = 60.0 / n;
     const int   peakIdx = static_cast<int>((peakDb_ + 60.0f) / step) - 1;
@@ -62,41 +61,28 @@ void LevelMeter::paintEvent(QPaintEvent*)
         const qreal lower = -60.0 + i * step;
         const qreal upper = lower + step;
         const bool lit = displayDb_ > lower + 0.01 || (i == peakIdx && peakDb_ > -59.0f);
-        const QColor on = upper > -3.0 ? theme::Tally : (upper > -12.0 ? theme::AmberHot : theme::Amber);
+        const QColor on = upper > -3.0 ? theme::Tally : (upper > -12.0 ? theme::Warm : theme::Accent);
 
+        QColor c = on;
+        if (!lit)
+        {
+            // Unlit LEDs keep a trace of their colour.
+            c = theme::LedOff;
+            c.setRed((c.red() * 82 + on.red() * 18) / 100);
+            c.setGreen((c.green() * 82 + on.green() * 18) / 100);
+            c.setBlue((c.blue() * 82 + on.blue() * 18) / 100);
+        }
         const qreal y = well.bottom() - pad - (i + 1) * segH - i * gap;
-        const QRectF seg(well.left() + pad, y, well.width() - 2 * pad, segH);
-        if (lit)
-        {
-            // Lit LED: a soft halo behind it and a bright core.
-            QColor halo = on;
-            halo.setAlpha(70);
-            p.setBrush(halo);
-            p.drawRoundedRect(seg.adjusted(-1, -1, 1, 1), 2, 2);
-            QLinearGradient g(seg.topLeft(), seg.bottomLeft());
-            g.setColorAt(0.0, on.lighter(125));
-            g.setColorAt(1.0, on);
-            p.setBrush(g);
-        }
-        else
-        {
-            // Unlit LEDs keep a trace of their colour, like real ones.
-            QColor dim = theme::LedOff;
-            dim.setRed((dim.red() * 85 + on.red() * 15) / 100);
-            dim.setGreen((dim.green() * 85 + on.green() * 15) / 100);
-            dim.setBlue((dim.blue() * 85 + on.blue() * 15) / 100);
-            p.setBrush(dim);
-        }
-        p.drawRoundedRect(seg, 1, 1);
+        p.setBrush(c);
+        p.drawRect(QRectF(well.left() + pad, y, well.width() - 2 * pad, segH));
     }
 }
 
 // ============================================================================
 // Fader
 // ============================================================================
-static constexpr double kCapW = 28.0;
-static constexpr double kCapH = 24.0;
-static constexpr double kScaleW = 18.0;   // dB numbers left of the ticks
+static constexpr double kKnob  = 30.0;   // round knob diameter
+static constexpr double kTrack = 22.0;   // pill track width
 
 Fader::Fader(QWidget* parent) : QAbstractSlider(parent)
 {
@@ -108,6 +94,13 @@ Fader::Fader(QWidget* parent) : QAbstractSlider(parent)
     setFocusPolicy(Qt::StrongFocus);
     setCursor(Qt::SizeVerCursor);
     setToolTip(QStringLiteral("Drag, scroll or use arrow keys. Double-click for 0 dB."));
+}
+
+void Fader::setDimmed(bool dimmed)
+{
+    if (dimmed == dimmed_) return;
+    dimmed_ = dimmed;
+    update();
 }
 
 double Fader::PosFromDb(double db)
@@ -123,8 +116,8 @@ double Fader::DbFromPos(double pos)
     return pos / 0.75 * 60.0 - 60.0;
 }
 
-double Fader::travelTop() const    { return kCapH / 2 + 2; }
-double Fader::travelBottom() const { return height() - kCapH / 2 - 2; }
+double Fader::travelTop() const    { return kKnob / 2 + 2; }
+double Fader::travelBottom() const { return height() - kKnob / 2 - 4; }
 
 double Fader::yFromValue(int v) const
 {
@@ -141,9 +134,9 @@ int Fader::valueFromY(double y) const
 
 QRectF Fader::capRect() const
 {
-    const double cx = kScaleW + 14 + kCapW / 2;   // scale numbers, ticks, then the slot
+    const double cx = width() / 2.0;
     const double y  = yFromValue(value());
-    return QRectF(cx - kCapW / 2, y - kCapH / 2, kCapW, kCapH);
+    return QRectF(cx - kKnob / 2, y - kKnob / 2, kKnob, kKnob);
 }
 
 void Fader::paintEvent(QPaintEvent*)
@@ -151,73 +144,52 @@ void Fader::paintEvent(QPaintEvent*)
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    const double cx = capRect().center().x();
+    const double cx = width() / 2.0;
+    const QRectF track(cx - kTrack / 2, travelTop() - kTrack / 2, kTrack, travelBottom() - travelTop() + kTrack);
+    const QRectF knob = capRect();
+    const QColor fill = dimmed_ ? theme::AccentDim : theme::Accent;
 
-    // Slot: recessed, with a lit lip on its right edge.
-    const QRectF slot(cx - 2.5, travelTop() - 4, 5, travelBottom() - travelTop() + 8);
-    p.setPen(QPen(QColor(0x0E, 0x10, 0x13), 1.0));
+    // Pill track, filled up to the knob.
+    p.setPen(QPen(QColor(0x0F, 0x15, 0x1A), 1.0));
     p.setBrush(theme::Slot);
-    p.drawRoundedRect(slot, 2.5, 2.5);
-    p.setPen(QPen(QColor(0x3A, 0x42, 0x4D), 1.0));
-    p.drawLine(QPointF(slot.right() + 0.5, slot.top() + 3), QPointF(slot.right() + 0.5, slot.bottom() - 3));
-
-    // Gain above unity glows faintly amber in the slot.
-    const double y0 = yFromValue(0), yv = yFromValue(value());
-    if (yv < y0)
+    p.drawRoundedRect(track, kTrack / 2, kTrack / 2);
     {
-        QColor a = theme::Amber;
-        a.setAlpha(110);
+        QPainterPath pill;
+        pill.addRoundedRect(track.adjusted(1, 1, -1, -1), kTrack / 2 - 1, kTrack / 2 - 1);
+        p.save();
+        p.setClipPath(pill);
         p.setPen(Qt::NoPen);
-        p.setBrush(a);
-        p.drawRoundedRect(QRectF(cx - 1.5, yv, 3, y0 - yv), 1.5, 1.5);
+        p.setBrush(fill);
+        p.drawRect(QRectF(track.left(), knob.center().y(), track.width(), track.bottom() - knob.center().y()));
+
+        // "GAIN" printed up the track, dark on the fill.
+        p.translate(cx, track.bottom() - 10);
+        p.rotate(-90);
+        p.setFont(theme::Font(7.5, QFont::Bold));
+        p.setPen(QColor(0x10, 0x30, 0x22, dimmed_ ? 120 : 170));
+        p.drawText(QRectF(0, -kTrack / 2, 80, kTrack), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("GAIN"));
+        p.restore();
     }
 
-    // Scale: ticks and printed numbers; 0 dB is marked in amber.
-    struct Mark { double db; const char* text; };
-    const Mark marks[] = { {12, "+12"}, {6, "+6"}, {0, "0"}, {-10, "10"}, {-20, "20"},
-                           {-30, "30"}, {-40, "40"}, {-50, ""}, {-60, "60"} };
-    QFont f = theme::Font(6.5, QFont::DemiBold);
-    p.setFont(f);
-    for (const Mark& m : marks)
-    {
-        const double y = yFromValue(static_cast<int>(m.db * 10));
-        const bool zero = (m.db == 0.0);
-        p.setPen(QPen(zero ? theme::Amber : QColor(0x4A, 0x53, 0x60), zero ? 2.0 : 1.0));
-        p.drawLine(QPointF(cx - (zero ? 13 : 11), y), QPointF(cx - 6, y));
-        if (*m.text)
-        {
-            p.setPen(zero ? theme::Amber : theme::Muted);
-            p.drawText(QRectF(0, y - 7, kScaleW + 1, 14), Qt::AlignRight | Qt::AlignVCenter, QString::fromLatin1(m.text));
-        }
-    }
+    // 0 dB mark on the left of the track.
+    const double y0 = yFromValue(0);
+    p.setPen(QPen(theme::Muted, 1.5, Qt::SolidLine, Qt::RoundCap));
+    p.drawLine(QPointF(track.left() - 7, y0), QPointF(track.left() - 3, y0));
 
-    // Cap: soft shadow, brushed-metal body, amber index line.
-    const QRectF cap = capRect();
+    // Round knob: soft shadow, light rim, slate face, centre dot.
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(0, 0, 0, 90));
-    p.drawRoundedRect(cap.translated(0, 2.5), 4, 4);
-
-    QLinearGradient g(cap.topLeft(), cap.bottomLeft());
-    g.setColorAt(0.00, QColor(0x7A, 0x84, 0x91));
-    g.setColorAt(0.45, QColor(0x55, 0x5E, 0x6A));
-    g.setColorAt(0.55, QColor(0x48, 0x50, 0x5B));
-    g.setColorAt(1.00, QColor(0x32, 0x38, 0x41));
-    p.setBrush(g);
-    p.setPen(QPen(QColor(0x14, 0x17, 0x1B), 1.0));
-    p.drawRoundedRect(cap, 4, 4);
-    p.setPen(QPen(QColor(255, 255, 255, 50), 1.0));
-    p.drawLine(QPointF(cap.left() + 4, cap.top() + 1.5), QPointF(cap.right() - 4, cap.top() + 1.5));
-
-    // Grip ridges.
-    p.setPen(QPen(QColor(0x26, 0x2B, 0x32, 200), 1.0));
-    for (double dy : { -7.0, -4.0, 4.0, 7.0 })
-        p.drawLine(QPointF(cap.left() + 5, cap.center().y() + dy), QPointF(cap.right() - 5, cap.center().y() + dy));
-
+    p.drawEllipse(knob.translated(0, 2));
+    QRadialGradient face(knob.center() + QPointF(-4, -5), kKnob * 0.75);
+    face.setColorAt(0.0, QColor(0x5B, 0x70, 0x7E));
+    face.setColorAt(1.0, QColor(0x33, 0x44, 0x50));
+    p.setBrush(face);
     const bool active = hasFocus() || dragging_;
-    QColor line = active ? theme::AmberHot : theme::Amber;
-    if (!isEnabled()) line = theme::Muted;
-    p.setPen(QPen(line, 2.0, Qt::SolidLine, Qt::RoundCap));
-    p.drawLine(QPointF(cap.left() + 3, cap.center().y()), QPointF(cap.right() - 3, cap.center().y()));
+    p.setPen(QPen(active ? theme::AccentHot : QColor(0xC8, 0xD8, 0xDF), 2.0));
+    p.drawEllipse(knob.adjusted(1, 1, -1, -1));
+    p.setPen(Qt::NoPen);
+    p.setBrush(dimmed_ ? theme::Muted : theme::Legend);
+    p.drawEllipse(knob.center(), 3.0, 3.0);
 }
 
 void Fader::mousePressEvent(QMouseEvent* e)
@@ -291,9 +263,9 @@ void TallyLamp::paintEvent(QPaintEvent*)
     else
     {
         QRadialGradient lens(c + QPointF(-1, -1), 5);
-        lens.setColorAt(0.0, QColor(0x4A, 0x2A, 0x2D));
-        lens.setColorAt(1.0, QColor(0x22, 0x1A, 0x1C));
-        p.setPen(QPen(QColor(0x14, 0x17, 0x1B), 1.0));
+        lens.setColorAt(0.0, QColor(0x4A, 0x30, 0x34));
+        lens.setColorAt(1.0, QColor(0x22, 0x1E, 0x22));
+        p.setPen(QPen(QColor(0x0F, 0x15, 0x1A), 1.0));
         p.setBrush(lens);
         p.drawEllipse(c, 4.5, 4.5);
     }
@@ -311,7 +283,7 @@ CleanupScope::CleanupScope(QWidget* parent) : QWidget(parent)
     std::fill(std::begin(out_), std::end(out_), kScopeFloorDb);
     clock_.start();
     setToolTip(QStringLiteral("What the clean-up is doing right now, low to high pitch.\n"
-                              "Amber: your voice, kept. Red: background and clicks being removed."));
+                              "Green: your voice, kept. Red: background and clicks being removed."));
 }
 
 void CleanupScope::setBands(const float* inDb, const float* outDb, float removedDb)
@@ -366,8 +338,8 @@ void CleanupScope::paintEvent(QPaintEvent*)
         if (area.bottom() - yOut > 0.5)
         {
             QLinearGradient g(QPointF(0, yOut), QPointF(0, area.bottom()));
-            g.setColorAt(0.0, theme::AmberHot);
-            g.setColorAt(1.0, theme::Amber.darker(160));
+            g.setColorAt(0.0, theme::AccentHot);
+            g.setColorAt(1.0, theme::Accent.darker(160));
             p.setBrush(g);
             p.drawRoundedRect(QRectF(x, yOut, w, area.bottom() - yOut), 1, 1);
         }
@@ -379,7 +351,7 @@ void CleanupScope::paintEvent(QPaintEvent*)
         p.setFont(theme::Font(6.5, QFont::DemiBold));
         p.setPen(QColor(0xFF, 0x8A, 0x8D));
         p.drawText(area.adjusted(0, -2, 0, 0), Qt::AlignRight | Qt::AlignTop,
-                   QStringLiteral("−%1 dB").arg(std::lround(-removedDb_)));
+                   QStringLiteral("\u2212%1 dB").arg(std::lround(-removedDb_)));
     }
 }
 
@@ -436,9 +408,9 @@ void SoundPad::paintEvent(QPaintEvent*)
 
     // Body: lit from above.
     QLinearGradient body(r.topLeft(), r.bottomLeft());
-    const int lift = underMouse() ? 10 : 0;
-    body.setColorAt(0.0, QColor(0x33 + lift, 0x3A + lift, 0x44 + lift));
-    body.setColorAt(1.0, QColor(0x27 + lift, 0x2C + lift, 0x34 + lift));
+    const int lift = underMouse() ? 18 : 0;
+    body.setColorAt(0.0, theme::PanelHi.lighter(100 + lift));
+    body.setColorAt(1.0, theme::Panel.lighter(100 + lift));
     p.fillPath(shape, body);
 
     // Progress: an amber wash that fills left to right while the sound plays.
@@ -447,23 +419,23 @@ void SoundPad::paintEvent(QPaintEvent*)
         p.save();
         p.setClipPath(shape);
         QLinearGradient wash(r.topLeft(), r.topRight());
-        QColor a = theme::Amber, b = theme::Amber;
+        QColor a = theme::Accent, b = theme::Accent;
         a.setAlpha(20);
         b.setAlpha(70);
         wash.setColorAt(0.0, a);
         wash.setColorAt(1.0, b);
         const QRectF done(r.left(), r.top(), r.width() * progress_, r.height());
         p.fillRect(done, wash);
-        p.fillRect(QRectF(r.left(), r.bottom() - 3, r.width() * progress_, 3), theme::Amber);
+        p.fillRect(QRectF(r.left(), r.bottom() - 3, r.width() * progress_, 3), theme::Accent);
         p.restore();
     }
 
     // Edge: lit top, amber glow while playing, highlight with focus.
-    QColor edge = playing ? theme::Amber : QColor(0x3A, 0x42, 0x4D);
-    if (hasFocus() && !playing) edge = theme::AmberHot;
+    QColor edge = playing ? theme::Accent : theme::PanelEdge;
+    if (hasFocus() && !playing) edge = theme::AccentHot;
     if (playing)
     {
-        QColor glow = theme::Amber;
+        QColor glow = theme::Accent;
         glow.setAlpha(60);
         p.setPen(QPen(glow, 4.0));
         p.setBrush(Qt::NoBrush);
@@ -513,11 +485,11 @@ void SoundPad::paintEvent(QPaintEvent*)
         // Drawn as a keycap: a darker base under a lighter top.
         const QRectF chip(12, baseY - 2, w, 18);
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0x14, 0x17, 0x1B));
+        p.setBrush(theme::Slot);
         p.drawRoundedRect(chip.translated(0, 2), 4, 4);
         QLinearGradient cap(chip.topLeft(), chip.bottomLeft());
-        cap.setColorAt(0.0, QColor(0x46, 0x4E, 0x59));
-        cap.setColorAt(1.0, QColor(0x36, 0x3D, 0x47));
+        cap.setColorAt(0.0, QColor(0x4A, 0x5E, 0x6C));
+        cap.setColorAt(1.0, QColor(0x3A, 0x4C, 0x58));
         p.setBrush(cap);
         p.drawRoundedRect(chip, 4, 4);
         p.setPen(theme::Legend);
@@ -528,8 +500,8 @@ void SoundPad::paintEvent(QPaintEvent*)
     QString right;
     QColor  rightColor = theme::Muted;
     if (state_ == State::Loading)      right = QStringLiteral("Loading\u2026");
-    else if (state_ == State::Failed) { right = QStringLiteral("Can't open"); rightColor = theme::Amber; }
-    else if (playing)                 { right = QStringLiteral("Playing"); rightColor = theme::AmberHot; }
+    else if (state_ == State::Failed) { right = QStringLiteral("Can't open"); rightColor = theme::Tally; }
+    else if (playing)                 { right = QStringLiteral("Playing"); rightColor = theme::AccentHot; }
     else                               right = detail_;   // duration
     if (!right.isEmpty())
     {

@@ -13,7 +13,7 @@ class LevelMeter : public QWidget
 public:
     explicit LevelMeter(QWidget* parent = nullptr);
     void  setLevel(float linearPeak);   // call ~30x per second
-    QSize sizeHint() const override { return { 12, 170 }; }
+    QSize sizeHint() const override { return { 14, 170 }; }
     QSize minimumSizeHint() const override { return { 10, 120 }; }
 
 protected:
@@ -27,17 +27,19 @@ private:
     qint64        lastMs_    = 0;
 };
 
-// Console-style fader. Value is tenths of a dB: -600 (-60 dB) .. +120 (+12 dB).
-// 0 dB sits at three quarters of the travel. Double-click resets to 0 dB.
+// Pill fader: a fat track that fills up to a round knob. Value is tenths of a
+// dB: -600 (-60 dB) .. +120 (+12 dB). 0 dB sits at three quarters of the
+// travel. Double-click resets to 0 dB.
 class Fader : public QAbstractSlider
 {
     Q_OBJECT
 public:
     explicit Fader(QWidget* parent = nullptr);
-    QSize sizeHint() const override { return { 62, 170 }; }
-    QSize minimumSizeHint() const override { return { 62, 120 }; }
+    QSize sizeHint() const override { return { 40, 170 }; }
+    QSize minimumSizeHint() const override { return { 40, 120 }; }
 
     static float DbFromValue(int v) { return v / 10.0f; }
+    void  setDimmed(bool dimmed);   // channel switched off: muted colours
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -56,6 +58,7 @@ private:
     QRectF capRect() const;
 
     bool   dragging_   = false;
+    bool   dimmed_     = false;
     double dragOffset_ = 0.0;
 };
 
@@ -76,7 +79,7 @@ private:
 };
 
 // What the mic clean-up is doing, live: one column per frequency band.
-// Amber = your voice that's kept; red above it = background and clicks removed.
+// Green = your voice that's kept; red above it = background and clicks removed.
 class CleanupScope : public QWidget
 {
     Q_OBJECT

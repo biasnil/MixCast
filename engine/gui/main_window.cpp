@@ -194,7 +194,7 @@ QWidget* MainWindow::buildTabs()
     l->setSpacing(22);
 
     auto* group = new QButtonGroup(bar);
-    const QString names[3] = { QStringLiteral("Mixer"), QStringLiteral("Soundboard"), QStringLiteral("Editor") };
+    const QString names[3] = { QStringLiteral("MIXER"), QStringLiteral("SOUNDBOARD"), QStringLiteral("EDITOR") };
     for (int i = 0; i < 3; i++)
     {
         auto* t = new QPushButton(names[i]);
@@ -222,18 +222,17 @@ QWidget* MainWindow::buildHeader()
     l->setContentsMargins(20, 14, 20, 14);
     l->setSpacing(10);
 
-    auto* logo = new QLabel;
-    logo->setPixmap(theme::LogoIcon().pixmap(28, 28));
-    l->addWidget(logo);
-
-    auto* word = new QLabel(QStringLiteral("Mix<span style=\"color:%1\">Cast</span>").arg(theme::Amber.name()));
+    // Wordmark: "MIX" on a mint badge, "CAST" beside it.
+    auto* badge = new QLabel(QStringLiteral("MIX"));
+    badge->setObjectName(QStringLiteral("Badge"));
+    l->addWidget(badge);
+    auto* word = new QLabel(QStringLiteral("CAST"));
     word->setObjectName(QStringLiteral("Wordmark"));
-    word->setFont(theme::Font(17, QFont::DemiBold));
     l->addWidget(word);
-
     l->addSpacing(24);
-    auto* micLbl = new QLabel(QStringLiteral("Microphone"));
-    micLbl->setObjectName(QStringLiteral("Muted"));
+
+    auto* micLbl = new QLabel(QStringLiteral("MICROPHONE"));
+    micLbl->setObjectName(QStringLiteral("HeaderLabel"));
     l->addWidget(micLbl);
 
     micCombo_ = new QComboBox;
@@ -244,8 +243,8 @@ QWidget* MainWindow::buildHeader()
     l->addWidget(micCombo_);
 
     l->addSpacing(12);
-    auto* outLbl = new QLabel(QStringLiteral("Send to"));
-    outLbl->setObjectName(QStringLiteral("Muted"));
+    auto* outLbl = new QLabel(QStringLiteral("SEND TO"));
+    outLbl->setObjectName(QStringLiteral("HeaderLabel"));
     l->addWidget(outLbl);
 
     outputCombo_ = new QComboBox;
@@ -321,14 +320,17 @@ QWidget* MainWindow::buildMixer()
     scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
 
+    // One console panel; each channel is a column with a divider on its right.
     auto* row = new QWidget;
+    row->setObjectName(QStringLiteral("Console"));
+    row->setAttribute(Qt::WA_StyledBackground);
     stripsLayout_ = new QHBoxLayout(row);
-    stripsLayout_->setContentsMargins(0, 0, 0, 4);
-    stripsLayout_->setSpacing(10);
+    stripsLayout_->setContentsMargins(0, 0, 0, 0);
+    stripsLayout_->setSpacing(0);
 
-    addCard_ = new QPushButton(QStringLiteral("+\nAdd app"));
+    addCard_ = new QPushButton(QStringLiteral("+\nADD APP"));
     addCard_->setObjectName(QStringLiteral("AddCard"));
-    addCard_->setFixedWidth(120);
+    addCard_->setFixedWidth(110);
     addCard_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     addCard_->setCursor(Qt::PointingHandCursor);
     addCard_->setToolTip(QStringLiteral("Add Spotify, a game, Soundpad or any other app"));
@@ -351,51 +353,64 @@ QWidget* MainWindow::buildMixer()
     divider->setFixedWidth(1);
     l->addWidget(divider);
 
+    // Output: what Discord hears. Same parts as a channel, set apart.
     auto* master = new QFrame;
     master->setObjectName(QStringLiteral("MasterStrip"));
-    master->setFixedWidth(140);
+    master->setFixedWidth(150);
     auto* ml = new QVBoxLayout(master);
-    ml->setContentsMargins(12, 10, 12, 12);
-    ml->setSpacing(8);
+    ml->setContentsMargins(12, 12, 12, 14);
+    ml->setSpacing(10);
 
-    auto* title = new QLabel(QStringLiteral("Output"));
-    title->setObjectName(QStringLiteral("StripName"));
-    title->setProperty("kind", "master");
-    title->setFont(theme::Font(10.5, QFont::DemiBold));
-    ml->addWidget(title);
-
+    auto* titles = new QVBoxLayout;
+    titles->setSpacing(1);
+    auto* title = new QLabel(QStringLiteral("OUTPUT"));
+    title->setObjectName(QStringLiteral("StripTitle"));
+    titles->addWidget(title);
     outputSub_ = new QLabel(QStringLiteral("What Discord hears"));
-    outputSub_->setObjectName(QStringLiteral("StripStatus"));
-    outputSub_->setWordWrap(true);
-    outputSub_->setFixedHeight(30);
-    ml->addWidget(outputSub_);
+    outputSub_->setObjectName(QStringLiteral("StripSub"));
+    titles->addWidget(outputSub_);
+    ml->addLayout(titles);
+
+    auto* panel = new QFrame;
+    panel->setObjectName(QStringLiteral("InfoPanel"));
+    panel->setFixedHeight(100);
+    auto* pl = new QVBoxLayout(panel);
+    pl->setContentsMargins(8, 6, 8, 7);
+    auto* pLbl = new QLabel(QStringLiteral("TO DISCORD"));
+    pLbl->setObjectName(QStringLiteral("PanelLabel"));
+    pl->addWidget(pLbl);
+    pl->addStretch(1);
+    glitches_ = new QLabel;
+    glitches_->setObjectName(QStringLiteral("StripStatus"));
+    glitches_->setAlignment(Qt::AlignCenter);
+    glitches_->setWordWrap(true);
+    glitches_->setToolTip(QStringLiteral("Times the output ran dry. A few is harmless; "
+                                         "a steadily rising count means the PC is overloaded."));
+    pl->addWidget(glitches_);
+    pl->addStretch(1);
+    ml->addWidget(panel);
+
+    masterDb_ = new QLabel;
+    masterDb_->setObjectName(QStringLiteral("BigDb"));
+    masterDb_->setAlignment(Qt::AlignRight | Qt::AlignBottom);
+    masterDb_->setTextFormat(Qt::RichText);
+    masterDb_->setText(BigDbText(0));
+    ml->addWidget(masterDb_);
 
     auto* mid = new QHBoxLayout;
-    mid->setSpacing(4);
+    mid->setSpacing(10);
     mid->addStretch(1);
     outMeter_ = new LevelMeter;
-    outMeter_->setFixedWidth(12);
+    outMeter_->setFixedWidth(22);
     mid->addWidget(outMeter_);
     masterFader_ = new Fader;
     mid->addWidget(masterFader_);
     mid->addStretch(1);
     ml->addLayout(mid, 1);
 
-    masterDb_ = new QLabel(FormatDb(0));
-    masterDb_->setObjectName(QStringLiteral("Db"));
-    masterDb_->setAlignment(Qt::AlignCenter);
-    ml->addWidget(masterDb_);
-
-    glitches_ = new QLabel;
-    glitches_->setObjectName(QStringLiteral("StripStatus"));
-    glitches_->setAlignment(Qt::AlignCenter);
-    glitches_->setToolTip(QStringLiteral("Times the output ran dry. A few is harmless; "
-                                         "a steadily rising count means the PC is overloaded."));
-    ml->addWidget(glitches_);
-
     connect(masterFader_, &QAbstractSlider::valueChanged, this, [this](int v) {
         const float db = Fader::DbFromValue(v);
-        masterDb_->setText(FormatDb(db));
+        masterDb_->setText(BigDbText(db));
         if (engine_) engine_->controls.masterGainDb = db;
         saveSettingsSoon();
     });
@@ -559,7 +574,8 @@ void MainWindow::startEngine()
     }
 
     liveMicName_ = QString::fromStdWString(out->micName);
-    outputSub_->setText(QStringLiteral("What Discord hears on %1").arg(liveMicName_));
+    outputSub_->setText(liveMicName_);   // the device Discord should pick
+    outputSub_->setToolTip(QStringLiteral("What Discord hears. In Discord, pick %1 as your input device.").arg(liveMicName_));
     outputCombo_->setCurrentIndex(std::max(0, static_cast<int>(outputIds_.indexOf(QString::fromStdWString(out->endpoint.id)))));
 
     engine_ = std::make_unique<MixEngine>(out->endpoint.id, 20);
@@ -717,7 +733,7 @@ void MainWindow::tick()
                                      : QStringLiteral("Apps at full level"));
 
     const uint32_t g = engine_->meters.renderGlitches;
-    glitches_->setText(g ? QStringLiteral("%1 dropouts").arg(g) : QString());
+    glitches_->setText(g ? QStringLiteral("%1 dropouts").arg(g) : QStringLiteral("Sending your mix"));
 
     if (trayMute_)
         if (auto* c = micControls()) trayMute_->setChecked(!c->enabled);
@@ -945,7 +961,7 @@ void MainWindow::loadGlobalSettings()
     duckThresh_->setEnabled(duckToggle_->isChecked());
     duckDepthLbl_->setText(FormatDb(static_cast<float>(duckDepth_->value()), 0));
     duckThreshLbl_->setText(FormatDb(static_cast<float>(duckThresh_->value()), 0));
-    masterDb_->setText(FormatDb(Fader::DbFromValue(masterFader_->value())));
+    masterDb_->setText(BigDbText(Fader::DbFromValue(masterFader_->value())));
 }
 
 void MainWindow::loadVoiceProfile(const QString& micId)

@@ -62,7 +62,6 @@ private:
     QPushButton* onBtn_   = nullptr;
     QPushButton* duckBtn_ = nullptr;
     TallyLamp*   tally_   = nullptr;
-    QLabel*      talking_ = nullptr;
     QString      lastStatus_;
     bool         lastWarn_ = false;
 };
@@ -71,3 +70,6 @@ private:
 // "Spotify.exe" -> "Spotify".
 QString DisplayNameForMic(const QString& deviceName);
 QString DisplayNameForExe(const QString& exe);
+
+// Rich text for a channel's big gain readout ("−6.0 dB").
+QString BigDbText(float db);

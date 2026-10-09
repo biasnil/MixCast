@@ -3,11 +3,10 @@
 ## Unreleased
 
 **New look**
-- Channel strips with depth: a lit top edge, a soft gradient, and colour-coded scribble strips for the names (red for your mic, amber for the soundboard, cyan for apps, gold for the output).
-- LED meters that glow, with unlit segments keeping a trace of their colour like real LEDs.
-- Faders with brushed-metal caps, an amber index line and a printed dB scale.
-- Amber LCD-style dB readouts, a glowing red LIVE pill, segmented tabs and an amber-accented wordmark.
-- Soundboard pads lit from above, with keycap-style hotkeys and an amber glow while playing.
+- A modern mixing-console design: one slate panel with a column per channel, and one mint accent for everything that's on.
+- Each channel has a section header (MIC, SOUNDBOARD, APP) with the device or app name under it, a dark info panel, and a big gain readout that turns coral above 0 dB.
+- Fat pill faders that fill up to a round knob, fine green-to-yellow-to-coral LED meters, and outlined buttons that fill mint when on. A switched-off channel shows a coral **OFF** and a dimmed fader.
+- A mint **MIX** badge in the header, uppercase section labels, a glowing coral LIVE pill, and slate soundboard pads with keycap-style hotkeys.
 - The mic's menu is shorter: Radio voice and Learns your voice are now submenus that show their status.
 
 **Simpler**
