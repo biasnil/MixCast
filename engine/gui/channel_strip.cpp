@@ -70,10 +70,11 @@ ChannelStrip::ChannelStrip(mixcast::SourceId id, StripKind kind, const QString& 
     // ---- Section header: what it is, then which one ------------------------
     auto* header = new QHBoxLayout;
     header->setSpacing(8);
-    auto* iconLbl = new QLabel;
-    iconLbl->setPixmap(icon.pixmap(20, 20));
-    iconLbl->setFixedSize(20, 20);
-    header->addWidget(iconLbl, 0, Qt::AlignTop);
+    icon_ = icon;
+    iconLbl_ = new QLabel;
+    iconLbl_->setPixmap(icon.pixmap(20, 20));
+    iconLbl_->setFixedSize(20, 20);
+    header->addWidget(iconLbl_, 0, Qt::AlignTop);
 
     auto* titles = new QVBoxLayout;
     titles->setSpacing(1);
@@ -533,6 +534,15 @@ void ChannelStrip::setStatus(const QString& text, bool warn)
     status_->setText(text);
     status_->setProperty("warn", warn);
     Repolish(status_);
+}
+
+void ChannelStrip::refreshTheme()
+{
+    updateDbLabel();
+    // The built-in icons are drawn in theme colours; app icons are the app's own.
+    if (kind_ == StripKind::Mic)             icon_ = theme::MicIcon();
+    else if (kind_ == StripKind::Soundboard) icon_ = theme::SoundboardIcon();
+    if (iconLbl_ && !icon_.isNull()) iconLbl_->setPixmap(icon_.pixmap(20, 20));
 }
 
 void ChannelStrip::setOutputBAvailable(bool available)

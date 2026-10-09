@@ -54,7 +54,8 @@ private:
     void tick();
     void syncStrips(const std::vector<mixcast::SourceStatus>& st);
     mixcast::SourceId addApp(const QString& exe, const QString& path, float gainDb, bool enabled, bool duck);
-    void setOutputB(const QString& id);       // "" off, "default" headphones, else an endpoint id
+    void setOutputB(const QString& id);
+    void applyTheme(int id);       // "" off, "default" headphones, else an endpoint id
     void fillOutputBMenu(class QMenu* menu);
     void removeSource(mixcast::SourceId id);
     void onAddAppClicked();
@@ -104,6 +105,7 @@ private:
     QLabel*      outputSub_    = nullptr;
     QPushButton* getCableBtn_  = nullptr;
     QToolButton* outBPick_     = nullptr;
+    QToolButton* themeBtn_     = nullptr;
     QSlider*     outBLevel_    = nullptr;
     QLabel*      outBLevelLbl_ = nullptr;
     QLabel*      soloNote_     = nullptr;

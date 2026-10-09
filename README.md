@@ -75,6 +75,7 @@ The same idea works in OBS, Zoom and other apps: pick **CABLE Output** as the mi
 - **Voice effects:** the **FX** button next to **Sound** gives you Deep, Chipmunk, Robot, Radio, Echo or Reverb.
 - **Tone and pan:** each app and the soundboard have **Bass / Mid / High** knobs and a **Pan** bar.
 - **Two outputs:** every channel has **A** (Discord) and **B** buttons. Set **Output B** in the Output strip to your headphones to hear yourself, or to a second cable for OBS. **SOLO** lets you hear one channel alone on B.
+- **Colours:** pick **Ocean** or **Classic** with the theme button at the right of the tabs.
 - **Soundboard:** on the **Soundboard** tab press **Add sounds**, then right-click a pad to give it a hotkey, a colour, a page, a loop or a fade-out. Drag pads to reorder them.
 - **Edit a sound:** right-click a pad and choose **Edit…**, trim it on the **Editor** tab, then press **Save to pad**.
 

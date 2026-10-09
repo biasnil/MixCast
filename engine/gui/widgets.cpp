@@ -49,7 +49,7 @@ void LevelMeter::paintEvent(QPaintEvent*)
 
     // Dark well.
     const QRectF well = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
-    p.setPen(QPen(QColor(0x0F, 0x15, 0x1A), 1.0));
+    p.setPen(QPen(theme::WellEdge, 1.0));
     p.setBrush(theme::Slot);
     p.drawRoundedRect(well, 4, 4);
 
@@ -154,7 +154,7 @@ void Fader::paintEvent(QPaintEvent*)
     const QColor fill = dimmed_ ? theme::AccentDim : theme::Accent;
 
     // Pill track, filled up to the knob.
-    p.setPen(QPen(QColor(0x0F, 0x15, 0x1A), 1.0));
+    p.setPen(QPen(theme::WellEdge, 1.0));
     p.setBrush(theme::Slot);
     p.drawRoundedRect(track, kTrack / 2, kTrack / 2);
     {
@@ -170,7 +170,9 @@ void Fader::paintEvent(QPaintEvent*)
         p.translate(cx, track.bottom() - 10);
         p.rotate(-90);
         p.setFont(theme::Font(7.5, QFont::Bold));
-        p.setPen(QColor(0x10, 0x30, 0x22, dimmed_ ? 120 : 170));
+        QColor ink = theme::OnAccent;
+        ink.setAlpha(dimmed_ ? 120 : 170);
+        p.setPen(ink);
         p.drawText(QRectF(0, -kTrack / 2, 80, kTrack), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("GAIN"));
         p.restore();
     }
@@ -185,11 +187,11 @@ void Fader::paintEvent(QPaintEvent*)
     p.setBrush(QColor(0, 0, 0, 90));
     p.drawEllipse(knob.translated(0, 2));
     QRadialGradient face(knob.center() + QPointF(-4, -5), kKnob * 0.75);
-    face.setColorAt(0.0, QColor(0x5B, 0x70, 0x7E));
-    face.setColorAt(1.0, QColor(0x33, 0x44, 0x50));
+    face.setColorAt(0.0, theme::KnobLight);
+    face.setColorAt(1.0, theme::KnobDark);
     p.setBrush(face);
     const bool active = hasFocus() || dragging_;
-    p.setPen(QPen(active ? theme::AccentHot : QColor(0xC8, 0xD8, 0xDF), 2.0));
+    p.setPen(QPen(active ? theme::AccentHot : theme::Rim, 2.0));
     p.drawEllipse(knob.adjusted(1, 1, -1, -1));
     p.setPen(Qt::NoPen);
     p.setBrush(dimmed_ ? theme::Muted : theme::Legend);
@@ -269,7 +271,7 @@ void TallyLamp::paintEvent(QPaintEvent*)
         QRadialGradient lens(c + QPointF(-1, -1), 5);
         lens.setColorAt(0.0, QColor(0x4A, 0x30, 0x34));
         lens.setColorAt(1.0, QColor(0x22, 0x1E, 0x22));
-        p.setPen(QPen(QColor(0x0F, 0x15, 0x1A), 1.0));
+        p.setPen(QPen(theme::WellEdge, 1.0));
         p.setBrush(lens);
         p.drawEllipse(c, 4.5, 4.5);
     }
@@ -304,9 +306,9 @@ void Knob::paintEvent(QPaintEvent*)
 
     // Body.
     QRadialGradient face(c + QPointF(-3, -4), 16);
-    face.setColorAt(0.0, QColor(0x4A, 0x5C, 0x69));
-    face.setColorAt(1.0, QColor(0x2A, 0x38, 0x43));
-    p.setPen(QPen(QColor(0x0F, 0x15, 0x1A), 1.0));
+    face.setColorAt(0.0, theme::KnobLight.darker(112));
+    face.setColorAt(1.0, theme::KnobDark.darker(118));
+    p.setPen(QPen(theme::WellEdge, 1.0));
     p.setBrush(face);
     p.drawEllipse(ring.adjusted(3, 3, -3, -3));
 
@@ -425,8 +427,8 @@ void PanBar::paintEvent(QPaintEvent*)
     p.setPen(QPen(theme::Muted, 1.0));
     p.drawLine(QPointF(cx, t.top() - 2), QPointF(cx, t.bottom() + 2));
 
-    p.setPen(QPen(hasFocus() ? theme::AccentHot : QColor(0xC8, 0xD8, 0xDF), 1.5));
-    p.setBrush(QColor(0x33, 0x44, 0x50));
+    p.setPen(QPen(hasFocus() ? theme::AccentHot : theme::Rim, 1.5));
+    p.setBrush(theme::KnobDark);
     p.drawEllipse(QPointF(x, t.center().y()), 5, 5);
 
     // Value, and the width when it isn't normal.
@@ -509,10 +511,10 @@ void CleanupScope::paintEvent(QPaintEvent*)
     p.setRenderHint(QPainter::Antialiasing);
 
     const QRectF well = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
-    p.setPen(QPen(QColor(0x0E, 0x10, 0x13), 1.0));
+    p.setPen(QPen(theme::WellEdge, 1.0));
     p.setBrush(theme::Slot);
     p.drawRoundedRect(well, 4, 4);
-    p.setPen(QPen(QColor(0x35, 0x3C, 0x46), 1.0));
+    p.setPen(QPen(theme::WellLip, 1.0));
     p.drawLine(QPointF(well.left() + 4, well.bottom()), QPointF(well.right() - 4, well.bottom()));
 
     const QRectF area = well.adjusted(4, 4, -4, -3);
@@ -730,8 +732,8 @@ void SoundPad::paintEvent(QPaintEvent*)
         p.setBrush(theme::Slot);
         p.drawRoundedRect(chip.translated(0, 2), 4, 4);
         QLinearGradient cap(chip.topLeft(), chip.bottomLeft());
-        cap.setColorAt(0.0, QColor(0x4A, 0x5E, 0x6C));
-        cap.setColorAt(1.0, QColor(0x3A, 0x4C, 0x58));
+        cap.setColorAt(0.0, theme::KeyTop);
+        cap.setColorAt(1.0, theme::KeyBottom);
         p.setBrush(cap);
         p.drawRoundedRect(chip, 4, 4);
         p.setPen(theme::Legend);

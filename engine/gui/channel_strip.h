@@ -38,6 +38,9 @@ public:
     // Output B exists (a device is chosen): B and SOLO only make sense then.
     void setOutputBAvailable(bool available);
 
+    // After a theme change: redraw what has colours baked in.
+    void refreshTheme();
+
 signals:
     void removeRequested(mixcast::SourceId id);
     void openRequested();   // soundboard strip: show the pads
@@ -65,6 +68,8 @@ private:
     int                      shownPolish_ = -1;
 
     QLabel*      status_  = nullptr;
+    QLabel*      iconLbl_ = nullptr;
+    QIcon        icon_;
     QLabel*      db_      = nullptr;
     LevelMeter*  meter_   = nullptr;
     Fader*       fader_   = nullptr;

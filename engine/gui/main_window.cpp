@@ -210,6 +210,28 @@ QWidget* MainWindow::buildTabs()
         });
     }
     l->addStretch(1);
+
+    // Theme picker, at the far right of the tab row.
+    themeBtn_ = new QToolButton;
+    themeBtn_->setObjectName(QStringLiteral("PanelPick"));
+    themeBtn_->setPopupMode(QToolButton::InstantPopup);
+    themeBtn_->setCursor(Qt::PointingHandCursor);
+    themeBtn_->setToolTip(QStringLiteral("Colour theme"));
+    auto* themeMenu = new QMenu(themeBtn_);
+    for (int t = 0; t < theme::ThemeCount; t++)
+    {
+        auto* a = themeMenu->addAction(QString::fromUtf8(theme::ThemePalette(t).name));
+        a->setCheckable(true);
+        connect(a, &QAction::triggered, this, [this, t] { applyTheme(t); });
+    }
+    connect(themeMenu, &QMenu::aboutToShow, this, [themeMenu] {
+        const auto acts = themeMenu->actions();
+        for (int t = 0; t < acts.size(); t++) acts[t]->setChecked(t == theme::CurrentTheme());
+    });
+    themeBtn_->setMenu(themeMenu);
+    themeBtn_->setText(QString::fromUtf8(theme::ThemePalette(theme::CurrentTheme()).name).toUpper() + QStringLiteral(" \u25BE"));
+    l->addWidget(themeBtn_);
+
     return bar;
 }
 
@@ -1013,6 +1035,22 @@ void MainWindow::loadGlobalSettings()
     duckDepthLbl_->setText(FormatDb(static_cast<float>(duckDepth_->value()), 0));
     duckThreshLbl_->setText(FormatDb(static_cast<float>(duckThresh_->value()), 0));
     masterDb_->setText(BigDbText(Fader::DbFromValue(masterFader_->value())));
+}
+
+// ---- Theme -------------------------------------------------------------------
+void MainWindow::applyTheme(int id)
+{
+    theme::SetTheme(id);
+    qApp->setStyleSheet(theme::StyleSheet());   // restyles and repaints every widget
+    QSettings().setValue(QStringLiteral("ui/theme"), theme::CurrentTheme());
+    themeBtn_->setText(QString::fromUtf8(theme::ThemePalette(theme::CurrentTheme()).name).toUpper() + QStringLiteral(" \u25BE"));
+
+    // Things that baked a colour in when they were made.
+    masterDb_->setText(BigDbText(Fader::DbFromValue(masterFader_->value())));
+    for (auto* strip : strips_) strip->refreshTheme();
+    sbStrip_->refreshTheme();
+    setWindowIcon(theme::LogoIcon());
+    if (tray_) tray_->setIcon(theme::LogoIcon());
 }
 
 // ---- Output B --------------------------------------------------------------
