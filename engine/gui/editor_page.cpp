@@ -213,7 +213,7 @@ void WaveformView::paintEvent(QPaintEvent*)
         QColor band = theme::Legend;
         band.setAlpha(28);
         p.fillRect(QRectF(x0, top, std::max(1.0, x1 - x0), h), band);
-        p.setPen(QPen(theme::AmberHot, 1));
+        p.setPen(QPen(theme::AccentHot, 1));
         p.drawLine(QPointF(x0, top), QPointF(x0, height()));
         p.drawLine(QPointF(x1, top), QPointF(x1, height()));
     }
@@ -286,7 +286,7 @@ void WaveformView::paintWave(QPainter& p, int top, int h)
     const double amp = h / 2.0 - 6.0;
 
     auto colourFor = [&](double frame) {
-        return (!sel_.empty() && frame >= sel_.a && frame < sel_.b) ? theme::AmberHot : theme::Amber;
+        return (!sel_.empty() && frame >= sel_.a && frame < sel_.b) ? theme::AccentHot : theme::Accent;
     };
 
     if (fpp_ < 1.0)

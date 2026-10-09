@@ -18,6 +18,7 @@ class QHBoxLayout;
 class QLabel;
 class QPushButton;
 class QSlider;
+class QToolButton;
 class QSystemTrayIcon;
 class QStackedWidget;
 class HotkeyManager;
@@ -52,7 +53,10 @@ private:
     void stopEngine();
     void tick();
     void syncStrips(const std::vector<mixcast::SourceStatus>& st);
-    void addApp(const QString& exe, const QString& path, float gainDb, bool enabled, bool duck);
+    mixcast::SourceId addApp(const QString& exe, const QString& path, float gainDb, bool enabled, bool duck);
+    void setOutputB(const QString& id);
+    void applyTheme(int id);       // "" off, "default" headphones, else an endpoint id
+    void fillOutputBMenu(class QMenu* menu);
     void removeSource(mixcast::SourceId id);
     void onAddAppClicked();
     void onMicChosen(int index);
@@ -70,6 +74,8 @@ private:
     void loadGlobalSettings();
     void saveSettings();
     void saveSettingsSoon();
+    void loadVoiceProfile(const QString& micId);
+    void saveVoiceProfile();
 
     // Declared before engine_ so they outlive it.
     std::unique_ptr<mixcast::Soundboard> soundboard_;
@@ -87,14 +93,24 @@ private:
     QList<mixcast::SourceId>               stripOrder_;
     QStringList                            micIds_;
     QStringList                            outputIds_;
+    QString                                profileMicId_;  // mic whose voice profile is loaded
+    std::wstring                           outputAId_;     // the cable the mix goes into
     QString                                liveMicName_;   // what Discord should pick, e.g. "CABLE Output"
 
     QHBoxLayout* stripsLayout_ = nullptr;
     QPushButton* addCard_      = nullptr;
     QComboBox*   micCombo_     = nullptr;
     QComboBox*   outputCombo_  = nullptr;
+    QFrame*      livePill_     = nullptr;
     QLabel*      outputSub_    = nullptr;
     QPushButton* getCableBtn_  = nullptr;
+    QToolButton* outBPick_     = nullptr;
+    QToolButton* themeBtn_     = nullptr;
+    QSlider*     outBLevel_    = nullptr;
+    QLabel*      outBLevelLbl_ = nullptr;
+    QLabel*      soloNote_     = nullptr;
+    QLabel*      duckThreshName_ = nullptr;
+    QLabel*      duckFollows_  = nullptr;
     QLabel*      liveDot_      = nullptr;
     QLabel*      liveText_     = nullptr;
     QFrame*      banner_       = nullptr;

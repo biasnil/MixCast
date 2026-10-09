@@ -1,6 +1,7 @@
 // MixCast GUI - custom painted controls.
 #pragma once
 
+#include <QAbstractButton>
 #include <QAbstractSlider>
 #include <QElapsedTimer>
 #include <QWidget>
@@ -12,7 +13,7 @@ class LevelMeter : public QWidget
 public:
     explicit LevelMeter(QWidget* parent = nullptr);
     void  setLevel(float linearPeak);   // call ~30x per second
-    QSize sizeHint() const override { return { 12, 220 }; }
+    QSize sizeHint() const override { return { 14, 170 }; }
     QSize minimumSizeHint() const override { return { 10, 120 }; }
 
 protected:
@@ -26,17 +27,19 @@ private:
     qint64        lastMs_    = 0;
 };
 
-// Console-style fader. Value is tenths of a dB: -600 (-60 dB) .. +120 (+12 dB).
-// 0 dB sits at three quarters of the travel. Double-click resets to 0 dB.
+// Pill fader: a fat track that fills up to a round knob. Value is tenths of a
+// dB: -600 (-60 dB) .. +120 (+12 dB). 0 dB sits at three quarters of the
+// travel. Double-click resets to 0 dB.
 class Fader : public QAbstractSlider
 {
     Q_OBJECT
 public:
     explicit Fader(QWidget* parent = nullptr);
-    QSize sizeHint() const override { return { 40, 220 }; }
-    QSize minimumSizeHint() const override { return { 36, 120 }; }
+    QSize sizeHint() const override { return { 40, 170 }; }
+    QSize minimumSizeHint() const override { return { 40, 120 }; }
 
     static float DbFromValue(int v) { return v / 10.0f; }
+    void  setDimmed(bool dimmed);   // channel switched off: muted colours
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -55,6 +58,7 @@ private:
     QRectF capRect() const;
 
     bool   dragging_   = false;
+    bool   dimmed_     = false;
     double dragOffset_ = 0.0;
 };
 
@@ -72,4 +76,114 @@ protected:
 
 private:
     bool lit_ = false;
+};
+
+// Small rotary knob, value in tenths of a dB (-120..+120 = -12..+12 dB).
+// Drag up/down or scroll; double-click resets to 0. The arc lights from the
+// top (0) towards the value; the value is printed in the middle.
+class Knob : public QAbstractSlider
+{
+    Q_OBJECT
+public:
+    explicit Knob(const QString& label, QWidget* parent = nullptr);
+    QSize sizeHint() const override { return { 34, 44 }; }
+
+protected:
+    void paintEvent(QPaintEvent*) override;
+    void mousePressEvent(QMouseEvent*) override;
+    void mouseMoveEvent(QMouseEvent*) override;
+    void mouseReleaseEvent(QMouseEvent*) override;
+    void mouseDoubleClickEvent(QMouseEvent*) override;
+
+private:
+    QString label_;
+    bool    dragging_ = false;
+    int     dragStartY_ = 0, dragStartValue_ = 0;
+};
+
+// Balance bar: -100 (left) .. +100 (right), dot on a short track. Drag or
+// scroll; double-click centres it. Right-click picks the stereo width.
+class PanBar : public QAbstractSlider
+{
+    Q_OBJECT
+public:
+    explicit PanBar(QWidget* parent = nullptr);
+    QSize sizeHint() const override { return { 108, 16 }; }
+    void  setWidthValue(float width);            // shown as a note when not normal
+
+signals:
+    void widthChosen(float width);
+
+protected:
+    void paintEvent(QPaintEvent*) override;
+    void mousePressEvent(QMouseEvent*) override;
+    void mouseMoveEvent(QMouseEvent*) override;
+    void mouseDoubleClickEvent(QMouseEvent*) override;
+    void contextMenuEvent(QContextMenuEvent*) override;
+
+private:
+    QRectF track() const;
+    int    valueAt(double x) const;
+    float  width_ = 1.0f;
+};
+
+// What the mic clean-up is doing, live: one column per frequency band.
+// Green = your voice that's kept; red above it = background and clicks removed.
+class CleanupScope : public QWidget
+{
+    Q_OBJECT
+public:
+    static constexpr int kBands = 20;
+    explicit CleanupScope(QWidget* parent = nullptr);
+    void  setBands(const float* inDb, const float* outDb, float removedDb);   // ~30x per second
+    QSize sizeHint() const override { return { 116, 40 }; }
+
+protected:
+    void paintEvent(QPaintEvent*) override;
+
+private:
+    float         in_[kBands], out_[kBands];
+    float         removedDb_ = 0.0f;
+    QElapsedTimer clock_;
+    qint64        lastMs_ = 0;
+};
+
+// ---------------------------------------------------------------------------
+// One pad: click to play/stop, right-click for options.
+// ---------------------------------------------------------------------------
+class SoundPad : public QAbstractButton
+{
+    Q_OBJECT
+public:
+    enum class State { Loading, Ready, Failed };
+
+    explicit SoundPad(QWidget* parent = nullptr);
+    void  setName(const QString& name)      { name_ = name; update(); }
+    void  setHotkey(const QString& label)   { hotkey_ = label; update(); }
+    void  setState(State s, const QString& detail = {});
+    void  setProgress(float p);             // < 0 = not playing
+    void  setColour(const QColor& c)        { colour_ = c; update(); }   // invalid = none
+    void  setLooping(bool on)               { looping_ = on; update(); }
+    void  setDragId(int id)                 { dragId_ = id; }            // enables drag to reorder
+    QSize sizeHint() const override { return { 172, 88 }; }
+
+    static constexpr const char* kMime = "application/x-mixcast-pad";
+
+signals:
+    void menuRequested(const QPoint& globalPos);
+
+protected:
+    void paintEvent(QPaintEvent*) override;
+    void contextMenuEvent(QContextMenuEvent* e) override;
+    void mousePressEvent(QMouseEvent* e) override;
+    void mouseMoveEvent(QMouseEvent* e) override;
+
+private:
+    QString name_, hotkey_, detail_;
+    State   state_ = State::Loading;
+    float   progress_ = -1.0f;
+    QColor  colour_;
+    bool    looping_ = false;
+    int     dragId_ = -1;
+    QPoint  pressPos_;
 };

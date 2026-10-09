@@ -10,6 +10,7 @@
 //   mixcast-cli --list               show devices + apps playing audio
 
 #include "devices.h"
+#include "mic_presets.h"
 #include "mix_engine.h"
 
 #include <conio.h>
@@ -286,6 +287,24 @@ int wmain(int argc, wchar_t** argv)
                 case 'n': case 'N': engine.controls.voice.noiseLevel = (engine.controls.voice.noiseLevel + 1) % 4; break;
                 case 'g': case 'G': engine.controls.voice.gateMode   = (engine.controls.voice.gateMode + 1) % 4; break;
                 case 'r': case 'R': engine.controls.voice.rumbleFilter = !engine.controls.voice.rumbleFilter; break;
+                case 'p': case 'P':   // radio voice: all four polish stages together
+                {
+                    auto& v = engine.controls.voice;
+                    const bool on = !(v.deEsser && v.voiceEq && v.compressor && v.limiter);
+                    v.deEsser = on; v.voiceEq = on; v.compressor = on; v.limiter = on;
+                    break;
+                }
+                case 'l': case 'L': engine.controls.voice.learnVoice = !engine.controls.voice.learnVoice; break;
+                case 'v': case 'V': engine.controls.voice.autoLevel = !engine.controls.voice.autoLevel; break;
+                case 'h': case 'H': engine.controls.voice.cleanWhileTalking = !engine.controls.voice.cleanWhileTalking; break;
+                case 'b': case 'B': engine.controls.voice.removeClicks = !engine.controls.voice.removeClicks; break;
+                case 'e': case 'E': engine.controls.voice.voiceFx = (engine.controls.voice.voiceFx + 1) % FxCount; break;
+                case 's': case 'S':   // next mic sound preset
+                {
+                    const int now = MatchMicPreset(engine.controls.voice);
+                    ApplyMicPreset(engine.controls.voice, (now + 1) % PresetCount);
+                    break;
+                }
                 case 'x': case 'X':
                     if (!sources.empty() && !sources[selected].isMic) { engine.RemoveSource(sources[selected].id); menu = true; }
                     break;
@@ -339,15 +358,36 @@ int wmain(int argc, wchar_t** argv)
                 static const char* kNoise[] = { "off", "low", "medium", "high" };
                 static const char* kGate[]  = { "off", "gentle", "firm", "voice only" };
                 const auto& v = engine.controls.voice;
+                const int preset = MatchMicPreset(v);
+                std::snprintf(buf, sizeof(buf), "  MIC SOUND     %s   effect: %s", preset >= 0 ? MicPresetInfo(preset).name : "Custom",
+                              VoiceFxName(v.voiceFx.load()));
+                line(buf);
                 std::snprintf(buf, sizeof(buf), "  MIC CLEAN-UP  noise %s  gate %s  rumble filter %s  (background %.0f dB)",
                               kNoise[v.noiseLevel.load() & 3], kGate[std::min(v.gateMode.load(), 3)],
                               v.rumbleFilter ? "on" : "off", v.noiseFloorDb.load());
+                line(buf);
+                std::snprintf(buf, sizeof(buf), "  RADIO VOICE   de-esser %s  EQ %s  compressor %s (%.1f dB)  limiter %s",
+                              v.deEsser ? "on" : "off", v.voiceEq ? "on" : "off",
+                              v.compressor ? "on" : "off", v.compressDb.load(), v.limiter ? "on" : "off");
+                line(buf);
+                if (!v.learnVoice)
+                    std::snprintf(buf, sizeof(buf), "  YOUR VOICE    not learning");
+                else if (!v.profileInUse)
+                    std::snprintf(buf, sizeof(buf), "  YOUR VOICE    learning... %.0f of %.0f s heard",
+                                  v.learnedSec.load(), VoiceProfile::kTrainedSec);
+                else
+                    std::snprintf(buf, sizeof(buf), "  YOUR VOICE    %.0f-%.0f Hz  auto level %s (%+.1f dB)  clean while talking %s  keyboard removal %s",
+                                  v.pitchLoHz.load(), v.pitchHiHz.load(), v.autoLevel ? "on" : "off",
+                                  v.autoGainDb.load(), v.cleanWhileTalking ? "on" : "off", v.removeClicks ? "on" : "off");
                 line(buf);
             }
             line("----------------------------------------------------------------------------");
             line("  Up/Down select  Left/Right volume  Space on/off  k duck this app");
             line("  m mic on/off  a add app  x remove app  c change mic  d ducking  q quit");
             line("  n noise suppression  g gate (off/gentle/firm/voice only)  r rumble filter");
+            line("  p radio voice (de-esser, EQ, compressor, limiter) on/off");
+            line("  l learn my voice  v auto level  h clean while I talk  b remove keyboard & clicks");
+            line("  s mic sound preset (natural / clean / studio / noisy room)  e voice effect");
             drawn = lines;
 
             std::this_thread::sleep_for(std::chrono::milliseconds(60));

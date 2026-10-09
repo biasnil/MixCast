@@ -1,5 +1,6 @@
 // MixCast GUI - soundboard page (pads, hotkeys, "hear it myself").
 #include "soundboard_page.h"
+#include "channel_strip.h"
 #include "app_paths.h"
 #include "hotkeys.h"
 #include "mix_engine.h"
@@ -8,6 +9,7 @@
 #include <QCheckBox>
 #include <QContextMenuEvent>
 #include <QDragEnterEvent>
+#include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QFile>
 #include <QFileDialog>
@@ -22,6 +24,7 @@
 #include <QMimeData>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPixmap>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSettings>
@@ -31,6 +34,7 @@
 #include <QVBoxLayout>
 #include <QWidgetAction>
 
+#include <algorithm>
 #include <cmath>
 #include <map>
 
@@ -47,6 +51,13 @@ QString FormatDb(float db)
     return s + QStringLiteral(" dB");
 }
 
+// Pad colours (index 0 = none).
+const QColor kPadColours[] = { QColor(), QColor(0x6E, 0xDB, 0xA6), QColor(0x5A, 0xB8, 0xF5), QColor(0xA9, 0x8B, 0xF5),
+                               QColor(0xF5, 0x7F, 0xB5), QColor(0xF2, 0x64, 0x5A), QColor(0xF5, 0xA5, 0x5E),
+                               QColor(0xF5, 0xD2, 0x5E) };
+const char* const kPadColourNames[] = { "None", "Mint", "Blue", "Violet", "Pink", "Coral", "Orange", "Yellow" };
+constexpr int kPadColourCount = 8;
+
 QString FormatDuration(double seconds)
 {
     const int s = static_cast<int>(std::lround(seconds));
@@ -54,127 +65,6 @@ QString FormatDuration(double seconds)
 }
 
 } // namespace
-
-// ============================================================================
-// SoundPad
-// ============================================================================
-SoundPad::SoundPad(QWidget* parent) : QAbstractButton(parent)
-{
-    setCursor(Qt::PointingHandCursor);
-    setFixedSize(sizeHint());
-    setFocusPolicy(Qt::StrongFocus);
-    setAttribute(Qt::WA_Hover);
-}
-
-void SoundPad::setState(State s, const QString& detail)
-{
-    state_ = s;
-    detail_ = detail;
-    update();
-}
-
-void SoundPad::setProgress(float p)
-{
-    if (std::fabs(p - progress_) < 0.002f) return;
-    progress_ = p;
-    update();
-}
-
-void SoundPad::contextMenuEvent(QContextMenuEvent* e)
-{
-    emit menuRequested(e->globalPos());
-}
-
-void SoundPad::paintEvent(QPaintEvent*)
-{
-    QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing);
-
-    const bool playing = progress_ >= 0.0f;
-    const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
-
-    QPainterPath shape;
-    shape.addRoundedRect(r, 6, 6);
-
-    // Body.
-    QColor body = theme::Panel;
-    if (isDown())                 body = QColor(0x25, 0x2A, 0x31);
-    else if (underMouse())        body = QColor(0x31, 0x38, 0x42);
-    p.fillPath(shape, body);
-
-    // Progress: a wash that fills left to right while the sound plays.
-    if (playing)
-    {
-        p.save();
-        p.setClipPath(shape);
-        QColor wash = theme::Amber;
-        wash.setAlpha(38);
-        p.fillRect(QRectF(r.left(), r.top(), r.width() * progress_, r.height()), wash);
-        p.fillRect(QRectF(r.left(), r.bottom() - 3, r.width() * progress_, 3), theme::Amber);
-        p.restore();
-    }
-
-    // Border.
-    QColor edge = playing ? theme::Amber : theme::PanelEdge;
-    if (hasFocus() && !playing) edge = theme::AmberHot;
-    p.setPen(QPen(edge, playing ? 1.5 : 1.0));
-    p.setBrush(Qt::NoBrush);
-    p.drawPath(shape);
-
-    // Name: up to two lines, the second one elided.
-    p.setFont(theme::Font(10, QFont::DemiBold));
-    p.setPen(state_ == State::Failed ? theme::Muted : theme::Legend);
-    {
-        const QFontMetrics fm(p.font());
-        const int maxW = width() - 24;
-        QString line1, rest = name_;
-        const QStringList words = name_.split(QLatin1Char(' '));
-        for (int i = 0; i < words.size(); i++)
-        {
-            const QString trial = line1.isEmpty() ? words[i] : line1 + QLatin1Char(' ') + words[i];
-            if (fm.horizontalAdvance(trial) > maxW && !line1.isEmpty())
-            {
-                rest = words.mid(i).join(QLatin1Char(' '));
-                break;
-            }
-            line1 = trial;
-            rest.clear();
-        }
-        if (fm.horizontalAdvance(line1) > maxW) { line1 = fm.elidedText(line1, Qt::ElideRight, maxW); rest.clear(); }
-        p.drawText(QPointF(12, 10 + fm.ascent()), line1);
-        if (!rest.isEmpty())
-            p.drawText(QPointF(12, 10 + fm.lineSpacing() + fm.ascent()), fm.elidedText(rest, Qt::ElideRight, maxW));
-    }
-
-    // Hotkey chip, bottom left.
-    const qreal baseY = height() - 28;
-    if (!hotkey_.isEmpty())
-    {
-        p.setFont(theme::Font(8.5));
-        const QFontMetrics fm(p.font());
-        const qreal w = std::min<qreal>(fm.horizontalAdvance(hotkey_) + 14, width() - 24);
-        const QRectF chip(12, baseY, w, 18);
-        p.setPen(Qt::NoPen);
-        p.setBrush(theme::Slot);
-        p.drawRoundedRect(chip, 3, 3);
-        p.setPen(theme::Muted);
-        p.drawText(chip, Qt::AlignCenter, fm.elidedText(hotkey_, Qt::ElideRight, static_cast<int>(w - 10)));
-    }
-
-    // State, bottom right.
-    QString right;
-    QColor  rightColor = theme::Muted;
-    if (state_ == State::Loading)      right = QStringLiteral("Loading\u2026");
-    else if (state_ == State::Failed) { right = QStringLiteral("Can't open"); rightColor = theme::Amber; }
-    else if (playing)                 { right = QStringLiteral("Playing"); rightColor = theme::AmberHot; }
-    else                               right = detail_;   // duration
-    if (!right.isEmpty())
-    {
-        p.setFont(theme::Font(8.5));
-        p.setPen(rightColor);
-        p.drawText(QRectF(12, baseY, width() - 24, 18), Qt::AlignRight | Qt::AlignVCenter, right);
-    }
-}
 
 // ============================================================================
 // HotkeyDialog
@@ -308,6 +198,14 @@ SoundboardPage::SoundboardPage(mixcast::Soundboard* sb, HotkeyManager* hotkeys, 
     notice_->hide();
     root->addWidget(notice_);
 
+    // ---- Pages: All, your pages, + -------------------------------------------
+    pageBar_ = new QWidget;
+    auto* pb = new QHBoxLayout(pageBar_);
+    pb->setContentsMargins(0, 0, 0, 0);
+    pb->setSpacing(6);
+    root->addWidget(pageBar_);
+    rebuildPageBar();
+
     // ---- Pads -------------------------------------------------------------
     scroll_ = new QScrollArea;
     scroll_->setWidgetResizable(true);
@@ -372,6 +270,7 @@ SoundboardPage::Entry* SoundboardPage::addEntry(const QString& path, const QStri
     e->gainDb = gainDb;
 
     e->pad = new SoundPad(grid_);
+    e->pad->setDragId(e->key);
     e->pad->setName(name);
     e->pad->setToolTip(path);
     const int k = e->key;
@@ -414,6 +313,7 @@ void SoundboardPage::onDecoded(int key, std::shared_ptr<const mixcast::Clip> cli
     if (clip)
     {
         e->clip = sb_->AddClip(clip, e->gainDb);
+        applyPadOptions(*e);
         e->pad->setState(SoundPad::State::Ready, FormatDuration(clip->Seconds()));
     }
     else
@@ -614,6 +514,70 @@ void SoundboardPage::showPadMenu(int key, const QPoint& globalPos)
     volAction->setDefaultWidget(volRow);
     menu.addAction(volAction);
 
+    // Loop, fade-out, colour, page.
+    QAction* loop = menu.addAction(QStringLiteral("Loop"));
+    loop->setCheckable(true);
+    loop->setChecked(e->loop);
+    loop->setToolTip(QStringLiteral("Keep playing from the start until you stop it"));
+
+    QMenu* fadeMenu = menu.addMenu(QStringLiteral("Fade out when stopped"));
+    const struct { const char* name; float sec; } fades[] = { { "Quickly", 0.0f }, { "Over half a second", 0.5f },
+                                                             { "Over two seconds", 2.0f } };
+    for (const auto& f : fades)
+    {
+        auto* a = fadeMenu->addAction(QString::fromUtf8(f.name));
+        a->setCheckable(true);
+        a->setChecked(std::fabs(e->fadeOutSec - f.sec) < 0.01f);
+        connect(a, &QAction::triggered, this, [this, key, sec = f.sec] {
+            if (Entry* en = find(key)) { en->fadeOutSec = sec; applyPadOptions(*en); changed(); }
+        });
+    }
+
+    QMenu* colourMenu = menu.addMenu(QStringLiteral("Colour"));
+    for (int c = 0; c < kPadColourCount; c++)
+    {
+        QPixmap swatch(12, 12);
+        swatch.fill(c ? kPadColours[c] : QColor(0, 0, 0, 0));
+        auto* a = colourMenu->addAction(QIcon(swatch), QString::fromUtf8(kPadColourNames[c]));
+        a->setCheckable(true);
+        a->setChecked(e->colour == c);
+        connect(a, &QAction::triggered, this, [this, key, c] {
+            if (Entry* en = find(key)) { en->colour = c; applyPadOptions(*en); changed(); }
+        });
+    }
+
+    QMenu* pageMenu = menu.addMenu(QStringLiteral("Page"));
+    {
+        auto* none = pageMenu->addAction(QStringLiteral("No page"));
+        none->setCheckable(true);
+        none->setChecked(e->page.isEmpty());
+        connect(none, &QAction::triggered, this, [this, key] {
+            if (Entry* en = find(key)) { en->page.clear(); relayout(); changed(); }
+        });
+        for (const QString& pg : pages_)
+        {
+            auto* a = pageMenu->addAction(pg);
+            a->setCheckable(true);
+            a->setChecked(e->page == pg);
+            connect(a, &QAction::triggered, this, [this, key, pg] {
+                if (Entry* en = find(key)) { en->page = pg; relayout(); changed(); }
+            });
+        }
+        pageMenu->addSeparator();
+        auto* add = pageMenu->addAction(QStringLiteral("New page\u2026"));
+        connect(add, &QAction::triggered, this, [this, key] {
+            bool ok = false;
+            const QString name = QInputDialog::getText(this, QStringLiteral("New page"), QStringLiteral("Page name"),
+                                                       QLineEdit::Normal, QString(), &ok).trimmed();
+            if (!ok || name.isEmpty()) return;
+            if (!pages_.contains(name)) { pages_ << name; rebuildPageBar(); }
+            if (Entry* en = find(key)) en->page = name;
+            relayout();
+            changed();
+        });
+    }
+    menu.addSeparator();
+
     QAction* editAct = menu.addAction(QStringLiteral("Edit\u2026"));
     editAct->setToolTip(QStringLiteral("Cut, trim and fade this sound in the Editor"));
     editAct->setEnabled(QFileInfo::exists(e->path));
@@ -625,6 +589,7 @@ void SoundboardPage::showPadMenu(int key, const QPoint& globalPos)
     if (!chosen) return;
 
     if (chosen == play && e->clip)  sb_->Toggle(e->clip);
+    else if (chosen == loop)        { e->loop = loop->isChecked(); applyPadOptions(*e); changed(); }
     else if (chosen == hotkey)      editHotkey(key);
     else if (chosen == editAct)     emit editRequested(key, e->path, e->name);
     else if (chosen == rename)
@@ -649,6 +614,9 @@ void SoundboardPage::relayout()
     int i = 0;
     for (auto& e : entries_)
     {
+        const bool shown = currentPage_.isEmpty() || e->page == currentPage_;
+        e->pad->setVisible(shown);
+        if (!shown) continue;
         gridLayout_->addWidget(e->pad, i / cols, i % cols);
         i++;
     }
@@ -683,6 +651,7 @@ void SoundboardPage::tick()
 // ---- Drag & drop --------------------------------------------------------------------
 void SoundboardPage::dragEnterEvent(QDragEnterEvent* e)
 {
+    if (e->mimeData()->hasFormat(QString::fromLatin1(SoundPad::kMime))) { e->acceptProposedAction(); return; }
     if (!e->mimeData()->hasUrls()) return;
     for (const QUrl& u : e->mimeData()->urls())
         if (u.isLocalFile() && kAudioExtensions.contains(QFileInfo(u.toLocalFile()).suffix().toLower()))
@@ -692,13 +661,149 @@ void SoundboardPage::dragEnterEvent(QDragEnterEvent* e)
         }
 }
 
+void SoundboardPage::dragMoveEvent(QDragMoveEvent* e)
+{
+    e->acceptProposedAction();
+}
+
 void SoundboardPage::dropEvent(QDropEvent* e)
 {
+    if (e->mimeData()->hasFormat(QString::fromLatin1(SoundPad::kMime)))
+    {
+        const int key = e->mimeData()->data(QString::fromLatin1(SoundPad::kMime)).toInt();
+        if (dropPad(key, e->position().toPoint())) e->acceptProposedAction();
+        return;
+    }
     QStringList files;
     for (const QUrl& u : e->mimeData()->urls())
         if (u.isLocalFile()) files << u.toLocalFile();
     addFiles(files);
     e->acceptProposedAction();
+}
+
+// Dropped on a page tab: move it there. Dropped on a pad: put it before that
+// pad (after it, if dropped on the pad's right half).
+bool SoundboardPage::dropPad(int key, const QPoint& pos)
+{
+    QWidget* w = childAt(pos);
+    while (w && w != this && !qobject_cast<SoundPad*>(w) && !w->property("page").isValid()) w = w->parentWidget();
+    if (!w || w == this) return false;
+
+    auto from = std::find_if(entries_.begin(), entries_.end(), [key](auto& en) { return en->key == key; });
+    if (from == entries_.end()) return false;
+
+    if (w->property("page").isValid())
+    {
+        (*from)->page = w->property("page").toString();   // "" = the All tab: off its page
+        relayout();
+        changed();
+        return true;
+    }
+
+    auto* target = static_cast<SoundPad*>(w);
+    if (target == (*from)->pad) return false;
+    const bool after = target->mapFrom(this, pos).x() > target->width() / 2;
+    std::unique_ptr<Entry> moving = std::move(*from);
+    entries_.erase(from);
+    auto to = std::find_if(entries_.begin(), entries_.end(), [target](auto& en) { return en->pad == target; });
+    if (to != entries_.end() && after) ++to;
+    entries_.insert(to, std::move(moving));
+    relayout();
+    changed();
+    return true;
+}
+
+// ---- Pad options and pages -------------------------------------------------------------
+void SoundboardPage::applyPadOptions(Entry& e)
+{
+    if (e.clip) sb_->SetClipOptions(e.clip, e.loop, e.fadeOutSec);
+    e.pad->setLooping(e.loop);
+    e.pad->setColour(kPadColours[std::clamp(e.colour, 0, kPadColourCount - 1)]);
+}
+
+void SoundboardPage::rebuildPageBar()
+{
+    auto* l = static_cast<QHBoxLayout*>(pageBar_->layout());
+    while (QLayoutItem* it = l->takeAt(0))
+    {
+        if (it->widget()) it->widget()->deleteLater();
+        delete it;
+    }
+    if (!currentPage_.isEmpty() && !pages_.contains(currentPage_)) currentPage_.clear();
+
+    auto tab = [&](const QString& text, const QString& page) {
+        auto* b = new QPushButton(text);
+        b->setObjectName(QStringLiteral("PageTab"));
+        b->setCheckable(true);
+        b->setChecked(page == currentPage_);
+        b->setProperty("page", page);   // also a drop target
+        b->setCursor(Qt::PointingHandCursor);
+        connect(b, &QPushButton::clicked, this, [this, page] {
+            currentPage_ = page;
+            rebuildPageBar();
+            relayout();
+            changed();
+        });
+        if (!page.isEmpty())
+        {
+            b->setContextMenuPolicy(Qt::CustomContextMenu);
+            connect(b, &QWidget::customContextMenuRequested, this, [this, b, page](const QPoint& p) {
+                showPageMenu(page, b->mapToGlobal(p));
+            });
+            b->setToolTip(QStringLiteral("Drop a pad here to move it to this page. Right-click to rename or delete."));
+        }
+        else b->setToolTip(QStringLiteral("Every pad. Drop a pad here to take it off its page."));
+        l->addWidget(b);
+    };
+    tab(QStringLiteral("All"), QString());
+    for (const QString& pg : pages_) tab(pg, pg);
+
+    auto* add = new QPushButton(QStringLiteral("+ Page"));
+    add->setObjectName(QStringLiteral("PageTab"));
+    add->setCursor(Qt::PointingHandCursor);
+    add->setToolTip(QStringLiteral("Make a page to group pads, e.g. Memes, Music, Game"));
+    connect(add, &QPushButton::clicked, this, [this] {
+        bool ok = false;
+        const QString name = QInputDialog::getText(this, QStringLiteral("New page"), QStringLiteral("Page name"),
+                                                   QLineEdit::Normal, QString(), &ok).trimmed();
+        if (!ok || name.isEmpty() || pages_.contains(name)) return;
+        pages_ << name;
+        currentPage_ = name;
+        rebuildPageBar();
+        relayout();
+        changed();
+    });
+    l->addWidget(add);
+    l->addStretch(1);
+}
+
+void SoundboardPage::showPageMenu(const QString& page, const QPoint& globalPos)
+{
+    QMenu menu(this);
+    QAction* rename = menu.addAction(QStringLiteral("Rename\u2026"));
+    QAction* del = menu.addAction(QStringLiteral("Delete page"));
+    del->setToolTip(QStringLiteral("Its pads stay, under All"));
+    QAction* chosen = menu.exec(globalPos);
+    if (chosen == rename)
+    {
+        bool ok = false;
+        const QString name = QInputDialog::getText(this, QStringLiteral("Rename page"), QStringLiteral("Page name"),
+                                                   QLineEdit::Normal, page, &ok).trimmed();
+        if (!ok || name.isEmpty() || name == page || pages_.contains(name)) return;
+        pages_[pages_.indexOf(page)] = name;
+        for (auto& e : entries_) if (e->page == page) e->page = name;
+        if (currentPage_ == page) currentPage_ = name;
+    }
+    else if (chosen == del)
+    {
+        pages_.removeAll(page);
+        for (auto& e : entries_) if (e->page == page) e->page.clear();
+        if (currentPage_ == page) currentPage_.clear();
+    }
+    else return;
+    rebuildPageBar();
+    relayout();
+    changed();
 }
 
 // ---- Settings -----------------------------------------------------------------------
@@ -717,6 +822,11 @@ void SoundboardPage::loadSettings()
     sb_->monitorGainDb  = static_cast<float>(monitorVol_->value());
     sb_->Bus().gainDb   = s.value(QStringLiteral("soundboard/busGain"), 0.0f).toFloat();
     sb_->Bus().enabled  = s.value(QStringLiteral("soundboard/busEnabled"), true).toBool();
+    LoadChannelSettings(s, QStringLiteral("soundboard/bus/"), sb_->Bus());
+
+    pages_       = s.value(QStringLiteral("soundboard/pages")).toStringList();
+    currentPage_ = s.value(QStringLiteral("soundboard/page")).toString();
+    rebuildPageBar();
 
     const int n = s.beginReadArray(QStringLiteral("soundboard/pads"));
     for (int i = 0; i < n; i++)
@@ -729,6 +839,11 @@ void SoundboardPage::loadSettings()
                             s.value(QStringLiteral("name"), QFileInfo(path).completeBaseName()).toString(),
                             s.value(QStringLiteral("gain"), 0.0f).toFloat(),
                             QKeySequence(s.value(QStringLiteral("key")).toString(), QKeySequence::PortableText));
+        e->loop       = s.value(QStringLiteral("loop"), false).toBool();
+        e->fadeOutSec = s.value(QStringLiteral("fadeOut"), 0.0f).toFloat();
+        e->colour     = std::clamp(s.value(QStringLiteral("colour"), 0).toInt(), 0, kPadColourCount - 1);
+        e->page       = s.value(QStringLiteral("page")).toString();
+        applyPadOptions(*e);
         startDecode(e->key);
     }
     s.endArray();
@@ -749,8 +864,11 @@ void SoundboardPage::saveSettings()
     s.setValue(QStringLiteral("soundboard/monitorGain"), monitorVol_->value());
     s.setValue(QStringLiteral("soundboard/busGain"),     sb_->Bus().gainDb.load());
     s.setValue(QStringLiteral("soundboard/busEnabled"),  sb_->Bus().enabled.load());
+    SaveChannelSettings(s, QStringLiteral("soundboard/bus/"), sb_->Bus());
     s.setValue(QStringLiteral("soundboard/stopAllKey"),  stopAllKey_.toString(QKeySequence::PortableText));
 
+    s.setValue(QStringLiteral("soundboard/pages"), pages_);
+    s.setValue(QStringLiteral("soundboard/page"),  currentPage_);
     s.remove(QStringLiteral("soundboard/pads"));
     s.beginWriteArray(QStringLiteral("soundboard/pads"));
     int i = 0;
@@ -761,6 +879,10 @@ void SoundboardPage::saveSettings()
         s.setValue(QStringLiteral("name"), e->name);
         s.setValue(QStringLiteral("gain"), e->gainDb);
         s.setValue(QStringLiteral("key"),  e->hotkey.toString(QKeySequence::PortableText));
+        s.setValue(QStringLiteral("loop"),    e->loop);
+        s.setValue(QStringLiteral("fadeOut"), e->fadeOutSec);
+        s.setValue(QStringLiteral("colour"),  e->colour);
+        s.setValue(QStringLiteral("page"),    e->page);
     }
     s.endArray();
 }

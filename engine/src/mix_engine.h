@@ -3,10 +3,18 @@
 // Sources can be added, removed, switched on/off and re-leveled WHILE running.
 // The mic is the "main" channel: it drives ducking. App sources (Spotify,
 // Soundpad, a game...) each have their own gain, on/off and duck setting.
+//
+// Two outputs, like a broadcast desk:
+//   A  the virtual cable (what Discord hears) - the render thread's clock
+//   B  any playback device: your headphones, or a second cable for OBS.
+//      Each channel picks A and/or B; "solo" puts one channel alone on B
+//      to check it, without touching A.
 #pragma once
 
 #include "capture_source.h"
+#include "channel_dsp.h"
 #include "drift_reader.h"
+#include "ring_buffer.h"
 
 #include <atomic>
 #include <memory>
@@ -18,6 +26,7 @@
 namespace mixcast {
 
 class Soundboard;
+class MonitorOutput;
 using SourceId = uint32_t;
 
 // Global settings - safe to change from any thread while running.
@@ -28,22 +37,16 @@ struct MixControls
     std::atomic<float> duckThresholdDb{-40.0f};  // mic level that counts as "talking"
     std::atomic<float> duckHoldMs{300.0f};       // stay ducked this long after you stop
     std::atomic<float> masterGainDb{0.0f};
+    std::atomic<float> masterBGainDb{0.0f};      // output B level
 
     VoiceSettings      voice;                    // mic noise suppression / gate / rumble
-};
-
-// Per-source settings - safe to change from any thread while running.
-struct SourceControls
-{
-    std::atomic<float> gainDb{0.0f};
-    std::atomic<bool>  enabled{true};    // on/off switch (mute)
-    std::atomic<bool>  duckable{true};   // apps only: lower this app while you talk
-    std::atomic<float> peak{0.0f};       // meter, post-gain, linear
 };
 
 struct MixMeters
 {
     std::atomic<float>    outPeak{0.0f};   // after limiter, linear
+    std::atomic<float>    outBPeak{0.0f};  // output B
+    std::atomic<bool>     soloOn{false};   // some channel is soloed (B plays only those)
     std::atomic<float>    duckGain{1.0f};  // 1.0 = not ducked
     std::atomic<bool>     talking{false};  // voice detected on the mic
     std::atomic<uint32_t> renderGlitches{0};
@@ -91,6 +94,12 @@ public:
     std::vector<SourceStatus> Status() const;
     SourceControls*           Controls(SourceId id) const;
 
+    // Output B (UI thread). "" = off, "default" = your default headphones
+    // (followed as Windows' default changes), else a playback endpoint id.
+    void         SetOutputB(const std::wstring& deviceId);
+    std::wstring OutputB() const { return outputBWanted_; }
+    bool         OutputBActive() const;
+
     // Adds the soundboard bus to the mix (never ducked). It must outlive the
     // engine, or be detached with nullptr first.
     void SetSoundboard(Soundboard* sb) { soundboard_.store(sb); }
@@ -109,6 +118,7 @@ private:
         std::unique_ptr<CaptureSource> source;
         std::unique_ptr<DriftReader>   reader;
         SourceControls                 ctl;
+        ChannelDsp                     dsp;   // render thread only
     };
 
     void RenderThread();
@@ -130,8 +140,18 @@ private:
     std::string        error_;
     HANDLE             stopEvent_ = nullptr;
 
+    void UpdateOutputB();   // UI thread: open / follow / close the B device
+
+    // Output B. The ring is declared first so it outlives the device that reads it.
+    StereoRing                     ringB_{kSampleRate};
+    std::wstring                   outputBWanted_;
+    std::unique_ptr<MonitorOutput> outputB_;
+    std::atomic<bool>              bLive_{false};   // render thread feeds ringB_
+
     // Render-thread-only state.
-    std::vector<float> micBuf_, appBuf_, freeBuf_, tmpBuf_;
+    std::vector<float> micBuf_, appBuf_, freeBuf_, tmpBuf_;   // output A buses
+    std::vector<float> micB_, appB_, freeB_, soloB_, outB_;   // output B buses
+    ChannelDsp         sbDsp_;                                // soundboard channel
     float              duckGain_ = 1.0f;
     float              holdLeft_ = 0.0f;   // samples
 };

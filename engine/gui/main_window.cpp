@@ -13,6 +13,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QCryptographicHash>
 #include <QDesktopServices>
 #include <QUrl>
 #include <QFileIconProvider>
@@ -28,6 +29,7 @@
 #include <QSignalBlocker>
 #include <QSettings>
 #include <QSlider>
+#include <QStyle>
 #include <QSystemTrayIcon>
 #include <QVBoxLayout>
 
@@ -75,6 +77,13 @@ QIcon IconForExe(const QString& path)
         if (!ic.isNull()) return ic;
     }
     return theme::AppFallbackIcon();
+}
+
+// Each mic has its own voice profile: a headset and a desk mic hear you differently.
+QString ProfileKey(const QString& micId)
+{
+    const QByteArray h = QCryptographicHash::hash(micId.toUtf8(), QCryptographicHash::Md5).toHex().left(16);
+    return QStringLiteral("voice/profiles/") + QString::fromLatin1(h);
 }
 
 QSlider* MakeHSlider(int lo, int hi, int value)
@@ -143,6 +152,11 @@ MainWindow::MainWindow()
     connect(&tickTimer_, &QTimer::timeout, this, &MainWindow::tick);
     tickTimer_.start(33);   // ~30 fps meters
 
+    // What the mic learns about your voice is kept even if MixCast is killed.
+    auto* learnSave = new QTimer(this);
+    connect(learnSave, &QTimer::timeout, this, &MainWindow::saveSettings);
+    learnSave->start(60 * 1000);
+
     saveTimer_.setSingleShot(true);
     saveTimer_.setInterval(800);
     connect(&saveTimer_, &QTimer::timeout, this, &MainWindow::saveSettings);
@@ -180,7 +194,7 @@ QWidget* MainWindow::buildTabs()
     l->setSpacing(22);
 
     auto* group = new QButtonGroup(bar);
-    const QString names[3] = { QStringLiteral("Mixer"), QStringLiteral("Soundboard"), QStringLiteral("Editor") };
+    const QString names[3] = { QStringLiteral("MIXER"), QStringLiteral("SOUNDBOARD"), QStringLiteral("EDITOR") };
     for (int i = 0; i < 3; i++)
     {
         auto* t = new QPushButton(names[i]);
@@ -196,28 +210,51 @@ QWidget* MainWindow::buildTabs()
         });
     }
     l->addStretch(1);
+
+    // Theme picker, at the far right of the tab row.
+    themeBtn_ = new QToolButton;
+    themeBtn_->setObjectName(QStringLiteral("PanelPick"));
+    themeBtn_->setPopupMode(QToolButton::InstantPopup);
+    themeBtn_->setCursor(Qt::PointingHandCursor);
+    themeBtn_->setToolTip(QStringLiteral("Colour theme"));
+    auto* themeMenu = new QMenu(themeBtn_);
+    for (int t = 0; t < theme::ThemeCount; t++)
+    {
+        auto* a = themeMenu->addAction(QString::fromUtf8(theme::ThemePalette(t).name));
+        a->setCheckable(true);
+        connect(a, &QAction::triggered, this, [this, t] { applyTheme(t); });
+    }
+    connect(themeMenu, &QMenu::aboutToShow, this, [themeMenu] {
+        const auto acts = themeMenu->actions();
+        for (int t = 0; t < acts.size(); t++) acts[t]->setChecked(t == theme::CurrentTheme());
+    });
+    themeBtn_->setMenu(themeMenu);
+    themeBtn_->setText(QString::fromUtf8(theme::ThemePalette(theme::CurrentTheme()).name).toUpper() + QStringLiteral(" \u25BE"));
+    l->addWidget(themeBtn_);
+
     return bar;
 }
 
 QWidget* MainWindow::buildHeader()
 {
     auto* w = new QWidget;
+    w->setObjectName(QStringLiteral("Header"));
+    w->setAttribute(Qt::WA_StyledBackground);
     auto* l = new QHBoxLayout(w);
-    l->setContentsMargins(20, 16, 20, 12);
+    l->setContentsMargins(20, 14, 20, 14);
     l->setSpacing(10);
 
-    auto* logo = new QLabel;
-    logo->setPixmap(theme::LogoIcon().pixmap(28, 28));
-    l->addWidget(logo);
-
-    auto* word = new QLabel(QStringLiteral("MixCast"));
+    // Wordmark: "MIX" on a mint badge, "CAST" beside it.
+    auto* badge = new QLabel(QStringLiteral("MIX"));
+    badge->setObjectName(QStringLiteral("Badge"));
+    l->addWidget(badge);
+    auto* word = new QLabel(QStringLiteral("CAST"));
     word->setObjectName(QStringLiteral("Wordmark"));
-    word->setFont(theme::Font(17, QFont::DemiBold));
     l->addWidget(word);
-
     l->addSpacing(24);
-    auto* micLbl = new QLabel(QStringLiteral("Microphone"));
-    micLbl->setObjectName(QStringLiteral("Muted"));
+
+    auto* micLbl = new QLabel(QStringLiteral("MICROPHONE"));
+    micLbl->setObjectName(QStringLiteral("HeaderLabel"));
     l->addWidget(micLbl);
 
     micCombo_ = new QComboBox;
@@ -228,8 +265,8 @@ QWidget* MainWindow::buildHeader()
     l->addWidget(micCombo_);
 
     l->addSpacing(12);
-    auto* outLbl = new QLabel(QStringLiteral("Send to"));
-    outLbl->setObjectName(QStringLiteral("Muted"));
+    auto* outLbl = new QLabel(QStringLiteral("SEND TO"));
+    outLbl->setObjectName(QStringLiteral("HeaderLabel"));
     l->addWidget(outLbl);
 
     outputCombo_ = new QComboBox;
@@ -241,11 +278,19 @@ QWidget* MainWindow::buildHeader()
 
     l->addStretch(1);
 
+    // On-air pill: glows red while Discord can hear you.
+    livePill_ = new QFrame;
+    livePill_->setObjectName(QStringLiteral("LivePill"));
+    auto* pl = new QHBoxLayout(livePill_);
+    pl->setContentsMargins(10, 4, 12, 4);
+    pl->setSpacing(7);
     liveDot_ = new QLabel;
+    liveDot_->setObjectName(QStringLiteral("LiveDot"));
     liveDot_->setFixedSize(10, 10);
-    l->addWidget(liveDot_);
+    pl->addWidget(liveDot_);
     liveText_ = new QLabel;
-    l->addWidget(liveText_);
+    pl->addWidget(liveText_);
+    l->addWidget(livePill_);
     setLive(false, QStringLiteral("Starting\u2026"));
     return w;
 }
@@ -297,14 +342,17 @@ QWidget* MainWindow::buildMixer()
     scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
 
+    // One console panel; each channel is a column with a divider on its right.
     auto* row = new QWidget;
+    row->setObjectName(QStringLiteral("Console"));
+    row->setAttribute(Qt::WA_StyledBackground);
     stripsLayout_ = new QHBoxLayout(row);
-    stripsLayout_->setContentsMargins(0, 0, 0, 4);
-    stripsLayout_->setSpacing(10);
+    stripsLayout_->setContentsMargins(0, 0, 0, 0);
+    stripsLayout_->setSpacing(0);
 
-    addCard_ = new QPushButton(QStringLiteral("+\nAdd app"));
+    addCard_ = new QPushButton(QStringLiteral("+\nADD APP"));
     addCard_->setObjectName(QStringLiteral("AddCard"));
-    addCard_->setFixedWidth(120);
+    addCard_->setFixedWidth(110);
     addCard_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     addCard_->setCursor(Qt::PointingHandCursor);
     addCard_->setToolTip(QStringLiteral("Add Spotify, a game, Soundpad or any other app"));
@@ -327,50 +375,102 @@ QWidget* MainWindow::buildMixer()
     divider->setFixedWidth(1);
     l->addWidget(divider);
 
+    // Output: what Discord hears. Same parts as a channel, set apart.
     auto* master = new QFrame;
     master->setObjectName(QStringLiteral("MasterStrip"));
-    master->setFixedWidth(140);
+    master->setFixedWidth(150);
     auto* ml = new QVBoxLayout(master);
-    ml->setContentsMargins(12, 10, 12, 12);
-    ml->setSpacing(8);
+    ml->setContentsMargins(12, 12, 12, 14);
+    ml->setSpacing(10);
 
-    auto* title = new QLabel(QStringLiteral("Output"));
-    title->setObjectName(QStringLiteral("StripName"));
-    title->setFont(theme::Font(10.5, QFont::DemiBold));
-    ml->addWidget(title);
-
+    auto* titles = new QVBoxLayout;
+    titles->setSpacing(1);
+    auto* title = new QLabel(QStringLiteral("OUTPUT"));
+    title->setObjectName(QStringLiteral("StripTitle"));
+    titles->addWidget(title);
     outputSub_ = new QLabel(QStringLiteral("What Discord hears"));
-    outputSub_->setObjectName(QStringLiteral("StripStatus"));
-    outputSub_->setWordWrap(true);
-    outputSub_->setFixedHeight(30);
-    ml->addWidget(outputSub_);
+    outputSub_->setObjectName(QStringLiteral("StripSub"));
+    titles->addWidget(outputSub_);
+    ml->addLayout(titles);
+
+    auto* panel = new QFrame;
+    panel->setObjectName(QStringLiteral("InfoPanel"));
+    panel->setFixedHeight(100);
+    auto* pl = new QVBoxLayout(panel);
+    pl->setContentsMargins(8, 6, 8, 7);
+    // Output B: where B-sent and soloed channels play, with its own level.
+    pl->setSpacing(4);
+    auto* pLbl = new QLabel(QStringLiteral("OUTPUT B"));
+    pLbl->setObjectName(QStringLiteral("PanelLabel"));
+    pl->addWidget(pLbl);
+    outBPick_ = new QToolButton;
+    outBPick_->setObjectName(QStringLiteral("PanelPick"));
+    outBPick_->setPopupMode(QToolButton::InstantPopup);
+    outBPick_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    outBPick_->setCursor(Qt::PointingHandCursor);
+    outBPick_->setToolTip(QStringLiteral("Where output B plays: your headphones (to hear yourself or a soloed channel), "
+                                         "or a second output such as another virtual cable for OBS"));
+    auto* bMenu = new QMenu(outBPick_);
+    connect(bMenu, &QMenu::aboutToShow, this, [this, bMenu] { fillOutputBMenu(bMenu); });
+    outBPick_->setMenu(bMenu);
+    pl->addWidget(outBPick_);
+
+    auto* bRow = new QHBoxLayout;
+    bRow->setSpacing(6);
+    outBLevel_ = new QSlider(Qt::Horizontal);
+    outBLevel_->setRange(-30, 6);
+    outBLevel_->setValue(0);
+    outBLevel_->setToolTip(QStringLiteral("Output B level"));
+    bRow->addWidget(outBLevel_, 1);
+    outBLevelLbl_ = new QLabel;
+    outBLevelLbl_->setObjectName(QStringLiteral("StripStatus"));
+    outBLevelLbl_->setFixedWidth(34);
+    outBLevelLbl_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    bRow->addWidget(outBLevelLbl_);
+    pl->addLayout(bRow);
+    connect(outBLevel_, &QSlider::valueChanged, this, [this](int v) {
+        outBLevelLbl_->setText(FormatDb(static_cast<float>(v), 0).replace(QStringLiteral(" dB"), QString()));
+        if (engine_) engine_->controls.masterBGainDb = static_cast<float>(v);
+        saveSettingsSoon();
+    });
+    outBLevelLbl_->setText(QStringLiteral("0"));
+
+    soloNote_ = new QLabel(QStringLiteral("SOLO ON B"));
+    soloNote_->setObjectName(QStringLiteral("SoloNote"));
+    soloNote_->setAlignment(Qt::AlignCenter);
+    soloNote_->setToolTip(QStringLiteral("A channel is soloed: output B plays only soloed channels. Discord isn't affected."));
+    soloNote_->hide();
+    pl->addWidget(soloNote_);
+    glitches_ = new QLabel;
+    glitches_->setObjectName(QStringLiteral("StripStatus"));
+    glitches_->setAlignment(Qt::AlignCenter);
+    glitches_->setToolTip(QStringLiteral("Times the output ran dry. A few is harmless; "
+                                         "a steadily rising count means the PC is overloaded."));
+    pl->addWidget(glitches_);
+    pl->addStretch(1);
+    ml->addWidget(panel);
+
+    masterDb_ = new QLabel;
+    masterDb_->setObjectName(QStringLiteral("BigDb"));
+    masterDb_->setAlignment(Qt::AlignRight | Qt::AlignBottom);
+    masterDb_->setTextFormat(Qt::RichText);
+    masterDb_->setText(BigDbText(0));
+    ml->addWidget(masterDb_);
 
     auto* mid = new QHBoxLayout;
-    mid->setSpacing(4);
+    mid->setSpacing(10);
     mid->addStretch(1);
     outMeter_ = new LevelMeter;
-    outMeter_->setFixedWidth(12);
+    outMeter_->setFixedWidth(22);
     mid->addWidget(outMeter_);
     masterFader_ = new Fader;
     mid->addWidget(masterFader_);
     mid->addStretch(1);
     ml->addLayout(mid, 1);
 
-    masterDb_ = new QLabel(FormatDb(0));
-    masterDb_->setObjectName(QStringLiteral("Db"));
-    masterDb_->setAlignment(Qt::AlignCenter);
-    ml->addWidget(masterDb_);
-
-    glitches_ = new QLabel;
-    glitches_->setObjectName(QStringLiteral("StripStatus"));
-    glitches_->setAlignment(Qt::AlignCenter);
-    glitches_->setToolTip(QStringLiteral("Times the output ran dry. A few is harmless; "
-                                         "a steadily rising count means the PC is overloaded."));
-    ml->addWidget(glitches_);
-
     connect(masterFader_, &QAbstractSlider::valueChanged, this, [this](int v) {
         const float db = Fader::DbFromValue(v);
-        masterDb_->setText(FormatDb(db));
+        masterDb_->setText(BigDbText(db));
         if (engine_) engine_->controls.masterGainDb = db;
         saveSettingsSoon();
     });
@@ -407,18 +507,27 @@ QWidget* MainWindow::buildDuckBar()
     l->addWidget(duckDepthLbl_);
 
     l->addSpacing(12);
-    auto* thLbl = new QLabel(QStringLiteral("Voice sensitivity"));
-    thLbl->setObjectName(QStringLiteral("Muted"));
-    l->addWidget(thLbl);
+    duckThreshName_ = new QLabel(QStringLiteral("Voice sensitivity"));
+    duckThreshName_->setObjectName(QStringLiteral("Muted"));
+    l->addWidget(duckThreshName_);
     duckThresh_ = MakeHSlider(-60, -15, -40);
     duckThresh_->setInvertedAppearance(true);   // right = more sensitive (lower threshold)
     duckThresh_->setInvertedControls(true);
     duckThresh_->setToolTip(QStringLiteral("Slide right if quiet speech doesn't lower the apps; "
-                                           "left if background noise does"));
+                                           "left if background noise does. Once MixCast has learned "
+                                           "your voice, ducking follows your voice instead."));
     l->addWidget(duckThresh_);
     duckThreshLbl_ = new QLabel;
     duckThreshLbl_->setFixedWidth(60);
     l->addWidget(duckThreshLbl_);
+
+    // Once your voice is learned, ducking follows it and the slider has nothing to do.
+    duckFollows_ = new QLabel(QStringLiteral("Follows your voice"));
+    duckFollows_->setObjectName(QStringLiteral("Muted"));
+    duckFollows_->setToolTip(QStringLiteral("MixCast knows your voice, so apps duck only when you speak: "
+                                            "keyboard, clicks and other people don't count."));
+    duckFollows_->hide();
+    l->addWidget(duckFollows_);
 
     l->addStretch(1);
     duckNow_ = new QLabel;
@@ -525,22 +634,35 @@ void MainWindow::startEngine()
     }
 
     liveMicName_ = QString::fromStdWString(out->micName);
-    outputSub_->setText(QStringLiteral("What Discord hears on %1").arg(liveMicName_));
+    outputSub_->setText(liveMicName_);   // the device Discord should pick
+    outputSub_->setToolTip(QStringLiteral("What Discord hears. In Discord, pick %1 as your input device.").arg(liveMicName_));
     outputCombo_->setCurrentIndex(std::max(0, static_cast<int>(outputIds_.indexOf(QString::fromStdWString(out->endpoint.id)))));
 
     engine_ = std::make_unique<MixEngine>(out->endpoint.id, 20);
+    outputAId_ = out->endpoint.id;
     engine_->controls.duckEnabled     = duckToggle_->isChecked();
     engine_->controls.duckDepthDb     = static_cast<float>(duckDepth_->value());
     engine_->controls.duckThresholdDb = static_cast<float>(duckThresh_->value());
     engine_->controls.masterGainDb    = Fader::DbFromValue(masterFader_->value());
+    engine_->controls.masterBGainDb   = static_cast<float>(outBLevel_->value());
 
     QSettings s;
     engine_->controls.voice.noiseLevel   = s.value(QStringLiteral("voice/noise"),  int(NoiseMedium)).toInt();
     engine_->controls.voice.gateMode     = s.value(QStringLiteral("voice/gate"),   int(GateGentle)).toInt();
     engine_->controls.voice.rumbleFilter = s.value(QStringLiteral("voice/rumble"), true).toBool();
+    engine_->controls.voice.deEsser      = s.value(QStringLiteral("voice/deEsser"),    false).toBool();
+    engine_->controls.voice.voiceEq      = s.value(QStringLiteral("voice/eq"),         false).toBool();
+    engine_->controls.voice.compressor   = s.value(QStringLiteral("voice/compressor"), false).toBool();
+    engine_->controls.voice.limiter      = s.value(QStringLiteral("voice/limiter"),    true).toBool();
+    engine_->controls.voice.learnVoice        = s.value(QStringLiteral("voice/learn"),     true).toBool();
+    engine_->controls.voice.autoLevel         = s.value(QStringLiteral("voice/autoLevel"), false).toBool();
+    engine_->controls.voice.cleanWhileTalking = s.value(QStringLiteral("voice/cleanTalk"), false).toBool();
+    engine_->controls.voice.removeClicks      = s.value(QStringLiteral("voice/clicks"),    false).toBool();
+    engine_->controls.voice.voiceFx           = s.value(QStringLiteral("voice/fx"),        0).toInt();
 
     // ---- Mic --------------------------------------------------------------
     // No saved choice -> default mic. Saved "" -> user chose no mic.
+    profileMicId_.clear();
     std::optional<Endpoint> mic;
     if (s.contains(QStringLiteral("mic/id")))
     {
@@ -555,9 +677,11 @@ void MainWindow::startEngine()
     }
     if (mic)
     {
+        loadVoiceProfile(QString::fromStdWString(mic->id));
         SourceId id = engine_->AddSource(MakeMic(*mic), true,
                                          s.value(QStringLiteral("mic/gain"), 0.0f).toFloat(), false);
         engine_->Controls(id)->enabled = s.value(QStringLiteral("mic/enabled"), true).toBool();
+        LoadChannelSettings(s, QStringLiteral("mic/"), *engine_->Controls(id));
     }
 
     // ---- Saved apps --------------------------------------------------------
@@ -565,15 +689,17 @@ void MainWindow::startEngine()
     for (int i = 0; i < n; i++)
     {
         s.setArrayIndex(i);
-        addApp(s.value(QStringLiteral("exe")).toString(),
-               s.value(QStringLiteral("path")).toString(),
-               s.value(QStringLiteral("gain"), 0.0f).toFloat(),
-               s.value(QStringLiteral("enabled"), true).toBool(),
-               s.value(QStringLiteral("duck"), true).toBool());
+        const SourceId app = addApp(s.value(QStringLiteral("exe")).toString(),
+                                    s.value(QStringLiteral("path")).toString(),
+                                    s.value(QStringLiteral("gain"), 0.0f).toFloat(),
+                                    s.value(QStringLiteral("enabled"), true).toBool(),
+                                    s.value(QStringLiteral("duck"), true).toBool());
+        if (auto* c = app ? engine_->Controls(app) : nullptr) LoadChannelSettings(s, QString(), *c);
     }
     s.endArray();
 
     engine_->SetSoundboard(soundboard_.get());
+    setOutputB(s.value(QStringLiteral("outputB/id"), QStringLiteral("default")).toString());
     engine_->Start();
     hideBanner();
     setLive(true, QStringLiteral("Live"));
@@ -582,9 +708,9 @@ void MainWindow::startEngine()
     tick();
 }
 
-void MainWindow::addApp(const QString& exe, const QString& path, float gainDb, bool enabled, bool duck)
+SourceId MainWindow::addApp(const QString& exe, const QString& path, float gainDb, bool enabled, bool duck)
 {
-    if (!engine_ || exe.isEmpty()) return;
+    if (!engine_ || exe.isEmpty()) return 0;
     const std::wstring wexe = exe.toStdWString();
     const DWORD pid = FindRootProcess(wexe).value_or(0);
 
@@ -594,6 +720,7 @@ void MainWindow::addApp(const QString& exe, const QString& path, float gainDb, b
     QString p = path;
     if (pid) { const QString live = QString::fromStdWString(ProcessImagePath(pid)); if (!live.isEmpty()) p = live; }
     appPaths_[id] = p;
+    return id;
 }
 
 void MainWindow::removeSource(SourceId id)
@@ -659,12 +786,25 @@ void MainWindow::tick()
 
     outMeter_->setLevel(engine_->meters.outPeak);
 
+    const bool byVoice = engine_->controls.voice.profileInUse;
+    if (duckFollows_->isHidden() == byVoice)
+    {
+        duckFollows_->setVisible(byVoice);
+        for (QWidget* w : { static_cast<QWidget*>(duckThreshName_), static_cast<QWidget*>(duckThresh_),
+                            static_cast<QWidget*>(duckThreshLbl_) })
+            w->setVisible(!byVoice);
+    }
+
     const float duckDb = LinToDb(engine_->meters.duckGain);
     duckNow_->setText(duckDb < -0.5f ? QStringLiteral("Apps lowered %1").arg(FormatDb(duckDb))
                                      : QStringLiteral("Apps at full level"));
 
     const uint32_t g = engine_->meters.renderGlitches;
     glitches_->setText(g ? QStringLiteral("%1 dropouts").arg(g) : QString());
+    soloNote_->setVisible(engine_->meters.soloOn);
+    const bool haveB = !engine_->OutputB().empty();
+    for (auto* strip : strips_) strip->setOutputBAvailable(haveB);
+    sbStrip_->setOutputBAvailable(haveB);
 
     if (trayMute_)
         if (auto* c = micControls()) trayMute_->setChecked(!c->enabled);
@@ -747,6 +887,11 @@ void MainWindow::onMicChosen(int index)
 
     QSettings().setValue(QStringLiteral("mic/id"), id);
     if (!engine_) return;
+
+    // Keep what was learned about the old mic, and bring back this one's.
+    saveVoiceProfile();
+    if (id.isEmpty()) profileMicId_.clear();
+    else              loadVoiceProfile(id);
 
     SourceId oldMic = 0;
     for (const auto& s : engine_->Status()) if (s.isMic) oldMic = s.id;
@@ -849,9 +994,13 @@ void MainWindow::refreshMicList(bool force)
 // ============================================================================
 void MainWindow::setLive(bool live, const QString& text)
 {
-    liveDot_->setStyleSheet(QStringLiteral("background:%1; border-radius:5px;")
-                                .arg(live ? theme::Tally.name() : QColor(0x5A, 0x62, 0x6D).name()));
-    liveText_->setText(text);
+    for (QWidget* w : { static_cast<QWidget*>(livePill_), static_cast<QWidget*>(liveDot_) })
+    {
+        w->setProperty("live", live);
+        w->style()->unpolish(w);
+        w->style()->polish(w);
+    }
+    liveText_->setText(text.toUpper());
     if (tray_) tray_->setToolTip(QStringLiteral("MixCast: ") + text);
 }
 
@@ -873,7 +1022,9 @@ void MainWindow::hideBanner()
 void MainWindow::loadGlobalSettings()
 {
     QSettings s;
-    QSignalBlocker b1(duckToggle_), b2(duckDepth_), b3(duckThresh_), b4(masterFader_);
+    QSignalBlocker b1(duckToggle_), b2(duckDepth_), b3(duckThresh_), b4(masterFader_), b5(outBLevel_);
+    outBLevel_->setValue(s.value(QStringLiteral("outputB/gain"), 0).toInt());
+    outBLevelLbl_->setText(FormatDb(static_cast<float>(outBLevel_->value()), 0).replace(QStringLiteral(" dB"), QString()));
     duckToggle_->setChecked(s.value(QStringLiteral("duck/enabled"), true).toBool());
     duckDepth_->setValue(s.value(QStringLiteral("duck/depth"), -12).toInt());
     duckThresh_->setValue(s.value(QStringLiteral("duck/threshold"), -40).toInt());
@@ -883,7 +1034,94 @@ void MainWindow::loadGlobalSettings()
     duckThresh_->setEnabled(duckToggle_->isChecked());
     duckDepthLbl_->setText(FormatDb(static_cast<float>(duckDepth_->value()), 0));
     duckThreshLbl_->setText(FormatDb(static_cast<float>(duckThresh_->value()), 0));
-    masterDb_->setText(FormatDb(Fader::DbFromValue(masterFader_->value())));
+    masterDb_->setText(BigDbText(Fader::DbFromValue(masterFader_->value())));
+}
+
+// ---- Theme -------------------------------------------------------------------
+void MainWindow::applyTheme(int id)
+{
+    theme::SetTheme(id);
+    qApp->setStyleSheet(theme::StyleSheet());   // restyles and repaints every widget
+    QSettings().setValue(QStringLiteral("ui/theme"), theme::CurrentTheme());
+    themeBtn_->setText(QString::fromUtf8(theme::ThemePalette(theme::CurrentTheme()).name).toUpper() + QStringLiteral(" \u25BE"));
+
+    // Things that baked a colour in when they were made.
+    masterDb_->setText(BigDbText(Fader::DbFromValue(masterFader_->value())));
+    for (auto* strip : strips_) strip->refreshTheme();
+    sbStrip_->refreshTheme();
+    setWindowIcon(theme::LogoIcon());
+    if (tray_) tray_->setIcon(theme::LogoIcon());
+}
+
+// ---- Output B --------------------------------------------------------------
+void MainWindow::setOutputB(const QString& id)
+{
+    if (!engine_) return;
+    engine_->SetOutputB(id.toStdWString());
+    QString name = QStringLiteral("Off");
+    if (id == QStringLiteral("default")) name = QStringLiteral("Headphones");
+    else if (!id.isEmpty())
+    {
+        name = QStringLiteral("Unplugged");
+        try
+        {
+            for (auto& ep : ListEndpoints(eRender))
+                if (QString::fromStdWString(ep.id) == id) name = DisplayNameForMic(QString::fromStdWString(ep.name));
+        }
+        catch (...) {}
+    }
+    outBPick_->setText(QFontMetrics(outBPick_->font()).elidedText(name, Qt::ElideRight, 92) + QStringLiteral(" \u25BE"));
+}
+
+void MainWindow::fillOutputBMenu(QMenu* menu)
+{
+    menu->clear();
+    const QString current = engine_ ? QString::fromStdWString(engine_->OutputB()) : QString();
+    auto add = [&](const QString& text, const QString& id, const QString& tip) {
+        auto* a = menu->addAction(text);
+        a->setCheckable(true);
+        a->setChecked(id == current);
+        a->setToolTip(tip);
+        connect(a, &QAction::triggered, this, [this, id] { setOutputB(id); saveSettingsSoon(); });
+    };
+    add(QStringLiteral("Off"), QString(), QStringLiteral("No output B"));
+    add(QStringLiteral("Your headphones (Windows default)"), QStringLiteral("default"),
+        QStringLiteral("Follows your Windows default playback device"));
+    menu->addSeparator();
+    try
+    {
+        for (auto& ep : ListEndpoints(eRender))
+        {
+            const QString id = QString::fromStdWString(ep.id);
+            if (ep.id == outputAId_) continue;   // that's output A
+            add(QString::fromStdWString(ep.name), id, QString());
+        }
+    }
+    catch (...) {}
+    menu->setToolTipsVisible(true);
+}
+
+void MainWindow::loadVoiceProfile(const QString& micId)
+{
+    if (!engine_) return;
+    QSettings s;
+    QByteArray bytes = s.value(ProfileKey(micId)).toByteArray();
+    if (bytes.isEmpty())   // older versions kept one profile for every mic: it goes to the first mic used
+        bytes = s.value(QStringLiteral("voice/profile")).toByteArray();
+
+    VoiceProfile learned;
+    if (!VoiceProfile::Deserialize(bytes.toStdString(), learned)) learned = VoiceProfile{};
+    engine_->controls.voice.LoadProfile(learned);
+    profileMicId_ = micId;
+}
+
+void MainWindow::saveVoiceProfile()
+{
+    if (!engine_ || profileMicId_.isEmpty()) return;
+    const std::string learned = engine_->controls.voice.CopyProfile().Serialize();
+    QSettings s;
+    s.setValue(ProfileKey(profileMicId_), QByteArray(learned.data(), static_cast<int>(learned.size())));
+    s.remove(QStringLiteral("voice/profile"));   // migrated
 }
 
 void MainWindow::saveSettingsSoon()
@@ -900,12 +1138,24 @@ void MainWindow::saveSettings()
     s.setValue(QStringLiteral("duck/depth"),      duckDepth_->value());
     s.setValue(QStringLiteral("duck/threshold"),  duckThresh_->value());
     s.setValue(QStringLiteral("master/gain"),     Fader::DbFromValue(masterFader_->value()));
+    s.setValue(QStringLiteral("outputB/gain"),    outBLevel_->value());
+    if (engine_) s.setValue(QStringLiteral("outputB/id"), QString::fromStdWString(engine_->OutputB()));
 
     if (!engine_) return;   // keep the saved app list if the engine never started
 
     s.setValue(QStringLiteral("voice/noise"),  engine_->controls.voice.noiseLevel.load());
     s.setValue(QStringLiteral("voice/gate"),   engine_->controls.voice.gateMode.load());
     s.setValue(QStringLiteral("voice/rumble"), engine_->controls.voice.rumbleFilter.load());
+    s.setValue(QStringLiteral("voice/deEsser"),    engine_->controls.voice.deEsser.load());
+    s.setValue(QStringLiteral("voice/eq"),         engine_->controls.voice.voiceEq.load());
+    s.setValue(QStringLiteral("voice/compressor"), engine_->controls.voice.compressor.load());
+    s.setValue(QStringLiteral("voice/limiter"),    engine_->controls.voice.limiter.load());
+    s.setValue(QStringLiteral("voice/learn"),      engine_->controls.voice.learnVoice.load());
+    s.setValue(QStringLiteral("voice/autoLevel"),  engine_->controls.voice.autoLevel.load());
+    s.setValue(QStringLiteral("voice/cleanTalk"),  engine_->controls.voice.cleanWhileTalking.load());
+    s.setValue(QStringLiteral("voice/clicks"),     engine_->controls.voice.removeClicks.load());
+    s.setValue(QStringLiteral("voice/fx"),         engine_->controls.voice.voiceFx.load());
+    saveVoiceProfile();
 
     const auto st = engine_->Status();
     s.remove(QStringLiteral("apps"));
@@ -917,6 +1167,7 @@ void MainWindow::saveSettings()
         {
             s.setValue(QStringLiteral("mic/gain"),    src.controls->gainDb.load());
             s.setValue(QStringLiteral("mic/enabled"), src.controls->enabled.load());
+            SaveChannelSettings(s, QStringLiteral("mic/"), *src.controls);
             continue;
         }
         s.setArrayIndex(i++);
@@ -925,6 +1176,7 @@ void MainWindow::saveSettings()
         s.setValue(QStringLiteral("gain"),    src.controls->gainDb.load());
         s.setValue(QStringLiteral("enabled"), src.controls->enabled.load());
         s.setValue(QStringLiteral("duck"),    src.controls->duckable.load());
+        SaveChannelSettings(s, QString(), *src.controls);
     }
     s.endArray();
 }

@@ -65,10 +65,18 @@ The same idea works in OBS, Zoom and other apps: pick **CABLE Output** as the mi
 
 ### Step 7: Make it yours
 - **Add music or a game:** on the **Mixer** tab press **+ Add app** and pick it from the list. Its strip has its own volume fader and an **On/Off** button.
-- **Mic clean-up:** on your mic strip press **Noise** and choose:
-  - **Noise suppression: Medium or High** for fans and hum.
-  - **Silence between words: Voice only** to also mute eating, typing and clicks between your words.
-- **Soundboard:** on the **Soundboard** tab press **Add sounds**, then right-click a pad to give it a hotkey.
+- **Mic sound:** on your mic strip press **Sound** and pick one:
+  - **Natural:** your mic almost as it is.
+  - **Clean** (the default): fans and hum removed, quiet between your words.
+  - **Studio:** Clean, plus a broadcast-style voice: softer "s", clearer tone, even and steady level.
+  - **Noisy room:** only your voice opens the mic, and keyboard and clicks are removed.
+
+  MixCast also learns your voice as you talk, separately for each mic. After about a minute, only your own voice ducks apps. The small display on the mic strip shows what's being removed: green is your voice, red is noise. Every individual setting is under **Sound → Advanced**.
+- **Voice effects:** the **FX** button next to **Sound** gives you Deep, Chipmunk, Robot, Radio, Echo or Reverb.
+- **Tone and pan:** each app and the soundboard have **Bass / Mid / High** knobs and a **Pan** bar.
+- **Two outputs:** every channel has **A** (Discord) and **B** buttons. Set **Output B** in the Output strip to your headphones to hear yourself, or to a second cable for OBS. **SOLO** lets you hear one channel alone on B.
+- **Colours:** pick **Ocean**, **Classic**, **Sakura**, **Ember** or **Light** with the theme button at the right of the tabs.
+- **Soundboard:** on the **Soundboard** tab press **Add sounds**, then right-click a pad to give it a hotkey, a colour, a page, a loop or a fade-out. Drag pads to reorder them.
 - **Edit a sound:** right-click a pad and choose **Edit…**, trim it on the **Editor** tab, then press **Save to pad**.
 
 That's it: you're set up. Everything below explains how it works and the other options.
@@ -146,7 +154,9 @@ To reset MixCast completely, close it (tray icon → Quit) and delete that folde
 | Discord hears nothing | Discord's input must be **CABLE Output**, the dot must be red **Live**, and your mic strip must be **On**. |
 | Friends hear an echo of themselves | Don't add Discord as an app, and keep your Windows default playback on your headset, never CABLE Input. |
 | My voice sounds "pumped" or cuts out | Turn off Discord's Noise Suppression and Automatic Gain Control (Step 6). |
-| Eating or typing still gets through | Mic strip → **Noise → Silence between words → Voice only**. |
+| Eating or typing still gets through | Mic strip → **Sound → Noisy room**. |
+| Music ducks when someone else talks or the TV is on | Keep **Learn my voice** on and talk for a minute; then only your pitch range ducks apps. |
+| It stopped recognising me (new mic, a cold) | It re-learns over a few minutes. To start fresh: **Sound → Advanced → Learns your voice → Forget my voice on this mic…** |
 | A hotkey doesn't work | Another app already uses that key. Pick a different one; numpad keys, F13–F24 or Ctrl/Alt combos work best. |
 | Build error about Qt | Check the `-DCMAKE_PREFIX_PATH` path in Step 4 points at your Qt `msvc2022_64` folder. |
 

@@ -5,6 +5,7 @@
 
 #include <QApplication>
 #include <QMessageBox>
+#include <QSettings>
 #include <QStyleFactory>
 #include <QSystemTrayIcon>
 
@@ -38,6 +39,9 @@ int main(int argc, char* argv[])
 
     // All settings go to %LOCALAPPDATA%\MixCast\MixCast.ini (moved from the registry if needed).
     SetupSettingsStorage();
+
+    // Colours: the theme you picked last time (Ocean the first time).
+    theme::SetTheme(QSettings().value(QStringLiteral("ui/theme"), theme::ThemeOcean).toInt());
 
     // Fusion gives the stylesheet a clean, predictable base on every Windows version.
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("Fusion")));

@@ -1,5 +1,6 @@
 // MixCast GUI - one channel strip (mic or app).
 #include "channel_strip.h"
+#include "mic_presets.h"
 #include "theme.h"
 #include "widgets.h"
 
@@ -8,15 +9,18 @@
 #include <QHBoxLayout>
 #include <QActionGroup>
 #include <QLabel>
+#include <QMessageBox>
 #include <QMenu>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QStyle>
 #include <QToolButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 QString DisplayNameForMic(const QString& deviceName)
 {
@@ -33,6 +37,18 @@ QString DisplayNameForExe(const QString& exe)
     return n;
 }
 
+QString BigDbText(float db)
+{
+    // Large number, small unit; boost above 0 dB shows in coral.
+    QString n = (db <= -59.95f) ? QStringLiteral("\u2212\u221E") : QString::number(std::fabs(db), 'f', 1);
+    if (db < -0.05f && db > -59.95f) n.prepend(QChar(0x2212));   // proper minus sign
+    else if (db > 0.05f) n.prepend(QLatin1Char('+'));
+    const QString colour = db > 0.05f ? theme::Tally.name() : theme::Legend.name();
+    return QStringLiteral("<span style=\"font-size:21pt; font-weight:300; color:%1\">%2</span>"
+                          "<span style=\"font-size:9pt; color:%3\">&nbsp;dB</span>")
+        .arg(colour, n, theme::Muted.name());
+}
+
 static void Repolish(QWidget* w)
 {
     w->style()->unpolish(w);
@@ -45,22 +61,41 @@ ChannelStrip::ChannelStrip(mixcast::SourceId id, StripKind kind, const QString& 
 {
     const bool isMic = isMic_;
     setObjectName(QStringLiteral("Strip"));
-    setFixedWidth(140);
+    setFixedWidth(148);
 
     auto* root = new QVBoxLayout(this);
-    root->setContentsMargins(12, 10, 12, 12);
-    root->setSpacing(8);
+    root->setContentsMargins(10, 12, 10, 14);
+    root->setSpacing(10);
 
-    // ---- Header: icon + remove on one row, full-width name below ------
+    // ---- Section header: what it is, then which one ------------------------
     auto* header = new QHBoxLayout;
-    header->setSpacing(6);
-    auto* iconLbl = new QLabel;
-    iconLbl->setPixmap(icon.pixmap(22, 22));
-    iconLbl->setFixedSize(22, 22);
-    header->addWidget(iconLbl);
-    header->addStretch(1);
+    header->setSpacing(8);
+    icon_ = icon;
+    iconLbl_ = new QLabel;
+    iconLbl_->setPixmap(icon.pixmap(20, 20));
+    iconLbl_->setFixedSize(20, 20);
+    header->addWidget(iconLbl_, 0, Qt::AlignTop);
 
-    if (kind == StripKind::App)
+    auto* titles = new QVBoxLayout;
+    titles->setSpacing(1);
+    auto* title = new QLabel(isMic ? QStringLiteral("MIC")
+                             : kind == StripKind::Soundboard ? QStringLiteral("SOUNDBOARD") : QStringLiteral("APP"));
+    title->setObjectName(QStringLiteral("StripTitle"));
+    titles->addWidget(title);
+    auto* sub = new QLabel;
+    sub->setObjectName(QStringLiteral("StripSub"));
+    sub->setText(QFontMetrics(theme::Font(8.5)).elidedText(name, Qt::ElideRight, 88));
+    sub->setToolTip(name);
+    titles->addWidget(sub);
+    header->addLayout(titles, 1);
+
+    if (isMic)
+    {
+        tally_ = new TallyLamp;   // lights while you talk
+        tally_->setToolTip(QStringLiteral("Lights while you're talking"));
+        header->addWidget(tally_, 0, Qt::AlignTop);
+    }
+    else if (kind == StripKind::App)
     {
         auto* remove = new QToolButton;
         remove->setObjectName(QStringLiteral("Remove"));
@@ -68,109 +103,210 @@ ChannelStrip::ChannelStrip(mixcast::SourceId id, StripKind kind, const QString& 
         remove->setToolTip(QStringLiteral("Remove from mix"));
         remove->setCursor(Qt::PointingHandCursor);
         connect(remove, &QToolButton::clicked, this, [this] { emit removeRequested(id_); });
-        header->addWidget(remove);
+        header->addWidget(remove, 0, Qt::AlignTop);
     }
     root->addLayout(header);
 
-    auto* nameLbl = new QLabel;
-    nameLbl->setObjectName(QStringLiteral("StripName"));
-    nameLbl->setFont(theme::Font(10.5, QFont::DemiBold));
-    nameLbl->setText(QFontMetrics(nameLbl->font()).elidedText(name, Qt::ElideRight, 116));
-    nameLbl->setToolTip(name);
-    root->addWidget(nameLbl);
+    // ---- Info panel: the mic's clean-up, or what this channel is doing -----
+    auto* panel = new QFrame;
+    panel->setObjectName(QStringLiteral("InfoPanel"));
+    panel->setFixedHeight(100);   // same on every channel, so readouts and faders line up
+    auto* pl = new QVBoxLayout(panel);
+    pl->setContentsMargins(8, 6, 8, 7);
+    pl->setSpacing(4);
 
-    // ---- Status line ----------------------------------------------------
     status_ = new QLabel;
     status_->setObjectName(QStringLiteral("StripStatus"));
     status_->setWordWrap(true);
-    status_->setFixedHeight(32);
-    status_->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    root->addWidget(status_);
+    status_->setAlignment(Qt::AlignCenter);
 
-    // ---- Meter + fader --------------------------------------------------
+    if (isMic && voice_)
+    {
+        // Sound preset on the left, fun voice effect on the right.
+        auto* top = new QHBoxLayout;
+        top->setSpacing(4);
+        buildNoiseButton();
+        top->addWidget(noiseBtn_);
+        top->addStretch(1);
+        fxBtn_ = new QToolButton;
+        fxBtn_->setObjectName(QStringLiteral("NoiseBtn"));
+        fxBtn_->setPopupMode(QToolButton::InstantPopup);
+        fxBtn_->setCursor(Qt::PointingHandCursor);
+        fxBtn_->setToolTip(QStringLiteral("Voice effect: Deep, Chipmunk, Robot, Radio, Echo or Reverb.\n"
+                                          "Everyone hears it, so it's good for fun, not for meetings."));
+        auto* fxMenu = new QMenu(fxBtn_);
+        auto* fxGroup = new QActionGroup(fxMenu);
+        for (int fx = 0; fx < mixcast::FxCount; fx++)
+        {
+            auto* a = fxMenu->addAction(QString::fromUtf8(mixcast::VoiceFxName(fx)));
+            a->setCheckable(true);
+            a->setData(fx);
+            fxGroup->addAction(a);
+            connect(a, &QAction::triggered, this, [this, fx] {
+                voice_->voiceFx = fx;
+                updateFxButton();
+                emit settingsChanged();
+            });
+            if (fx == 0) fxMenu->addSeparator();
+        }
+        fxBtn_->setMenu(fxMenu);
+        top->addWidget(fxBtn_);
+        pl->addLayout(top);
+        updateFxButton();
+
+        scope_ = new CleanupScope;
+        pl->addWidget(scope_, 1);
+        status_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        pl->addWidget(status_);
+    }
+    else
+    {
+        // Tone knobs and balance, Voicemeeter-style.
+        auto* knobs = new QHBoxLayout;
+        knobs->setSpacing(2);
+        auto knob = [&](const QString& label, std::atomic<float> mixcast::SourceControls::* field) {
+            auto* k = new Knob(label);
+            k->setValue(static_cast<int>(std::lround((ctl_->*field).load() * 10)));
+            connect(k, &QAbstractSlider::valueChanged, this, [this, field](int v) {
+                (ctl_->*field) = v / 10.0f;
+                emit settingsChanged();
+            });
+            knobs->addWidget(k);
+            return k;
+        };
+        knobs->addStretch(1);
+        bassK_   = knob(QStringLiteral("BASS"), &mixcast::SourceControls::bassDb);
+        midK_    = knob(QStringLiteral("MID"),  &mixcast::SourceControls::midDb);
+        trebleK_ = knob(QStringLiteral("HIGH"), &mixcast::SourceControls::trebleDb);
+        knobs->addStretch(1);
+        pl->addLayout(knobs);
+
+        pan_ = new PanBar;
+        pan_->setValue(static_cast<int>(std::lround(ctl_->pan.load() * 100)));
+        pan_->setWidthValue(ctl_->width);
+        connect(pan_, &QAbstractSlider::valueChanged, this, [this](int v) {
+            ctl_->pan = v / 100.0f;
+            emit settingsChanged();
+        });
+        connect(pan_, &PanBar::widthChosen, this, [this](float w) {
+            ctl_->width = w;
+            emit settingsChanged();
+        });
+        pl->addWidget(pan_);
+        status_->setWordWrap(false);   // one line under the knobs
+        pl->addWidget(status_);
+    }
+    root->addWidget(panel);
+
+    // ---- Big gain readout --------------------------------------------------
+    db_ = new QLabel;
+    db_->setObjectName(QStringLiteral("BigDb"));
+    db_->setAlignment(Qt::AlignRight | Qt::AlignBottom);
+    db_->setTextFormat(Qt::RichText);
+    root->addWidget(db_);
+
+    // ---- Meter | buttons | fader -------------------------------------------
     auto* mid = new QHBoxLayout;
-    mid->setSpacing(4);
-    mid->addStretch(1);
+    mid->setSpacing(10);
     meter_ = new LevelMeter;
-    meter_->setFixedWidth(12);
+    meter_->setFixedWidth(14);
     mid->addWidget(meter_);
+
+    auto* buttons = new QVBoxLayout;
+    buttons->setSpacing(8);
+    auto stripButton = [](const QString& text, const QString& tip) {
+        auto* b = new QPushButton(text);
+        b->setObjectName(QStringLiteral("StripBtn"));
+        b->setToolTip(tip);
+        b->setFixedSize(54, 30);
+        b->setCursor(Qt::PointingHandCursor);
+        return b;
+    };
+
+    onBtn_ = stripButton(QString(), isMic ? QStringLiteral("Turn your mic on or off")
+                                  : kind == StripKind::Soundboard ? QStringLiteral("Turn the soundboard on or off")
+                                                                   : QStringLiteral("Turn this app on or off"));
+    onBtn_->setProperty("power", true);   // coral "OFF" when switched off
+    onBtn_->setCheckable(true);
+    onBtn_->setChecked(ctl_->enabled);
+    onBtn_->setText(ctl_->enabled ? QStringLiteral("ON") : QStringLiteral("OFF"));
+    connect(onBtn_, &QPushButton::toggled, this, [this](bool on) {
+        ctl_->enabled = on;
+        onBtn_->setText(on ? QStringLiteral("ON") : QStringLiteral("OFF"));
+        setProperty("off", !on);
+        fader_->setDimmed(!on);
+        Repolish(this);
+        emit settingsChanged();
+    });
+    buttons->addWidget(onBtn_);
+
+    // Where it goes: A = the cable (Discord), B = headphones / second output.
+    auto* ab = new QHBoxLayout;
+    ab->setSpacing(4);
+    auto route = [&](const QString& text, const QString& tip, std::atomic<bool> mixcast::SourceControls::* field) {
+        auto* b = stripButton(text, tip);
+        b->setFixedSize(25, 28);
+        b->setCheckable(true);
+        b->setChecked(ctl_->*field);
+        connect(b, &QPushButton::toggled, this, [this, field](bool on) {
+            (ctl_->*field) = on;
+            emit settingsChanged();
+        });
+        ab->addWidget(b);
+        return b;
+    };
+    aBtn_ = route(QStringLiteral("A"), QStringLiteral("Send to output A: the virtual cable, what Discord hears"),
+                  &mixcast::SourceControls::sendA);
+    bBtn_ = route(QStringLiteral("B"), QStringLiteral("Send to output B: your headphones, or a second output like OBS"),
+                  &mixcast::SourceControls::sendB);
+    buttons->addLayout(ab);
+
+    if (kind == StripKind::Soundboard)
+    {
+        auto* open = stripButton(QStringLiteral("PADS"), QStringLiteral("Open the soundboard"));
+        connect(open, &QPushButton::clicked, this, &ChannelStrip::openRequested);
+        buttons->addWidget(open);
+    }
+    else if (kind == StripKind::App)
+    {
+        duckBtn_ = stripButton(QStringLiteral("DUCK"), QStringLiteral("Lower this app while you talk"));
+        duckBtn_->setCheckable(true);
+        duckBtn_->setChecked(ctl_->duckable);
+        connect(duckBtn_, &QPushButton::toggled, this, [this](bool on) {
+            ctl_->duckable = on;
+            emit settingsChanged();
+        });
+        buttons->addWidget(duckBtn_);
+    }
+    soloBtn_ = stripButton(QStringLiteral("SOLO"),
+                           QStringLiteral("Hear only this channel on output B, to check it. Discord isn't affected."));
+    soloBtn_->setProperty("solo", true);
+    soloBtn_->setCheckable(true);
+    soloBtn_->setChecked(ctl_->solo);
+    connect(soloBtn_, &QPushButton::toggled, this, [this](bool on) { ctl_->solo = on; });
+    buttons->addWidget(soloBtn_);
+
+    buttons->addStretch(1);
+    mid->addLayout(buttons);
+
     fader_ = new Fader;
     fader_->setValue(static_cast<int>(std::lround(ctl_->gainDb.load() * 10)));
+    fader_->setDimmed(!ctl_->enabled);
     mid->addWidget(fader_);
-    mid->addStretch(1);
     root->addLayout(mid, 1);
 
-    db_ = new QLabel;
-    db_->setObjectName(QStringLiteral("Db"));
-    db_->setAlignment(Qt::AlignCenter);
-    root->addWidget(db_);
     updateDbLabel();
-
     connect(fader_, &QAbstractSlider::valueChanged, this, [this](int v) {
         ctl_->gainDb = Fader::DbFromValue(v);
         updateDbLabel();
         emit settingsChanged();
     });
 
-    // ---- Mic: tally lamp / Apps: duck toggle -----------------------------
-    if (isMic)
-    {
-        auto* row = new QHBoxLayout;
-        row->setSpacing(6);
-        row->addStretch(1);
-        tally_ = new TallyLamp;
-        row->addWidget(tally_);
-        talking_ = new QLabel(QStringLiteral("Talking"));
-        talking_->setObjectName(QStringLiteral("Talking"));
-        row->addWidget(talking_);
-        row->addStretch(1);
-        root->addLayout(row);
-
-        if (voice_) buildNoiseButton();
-        if (noiseBtn_) root->addWidget(noiseBtn_);
-    }
-    else if (kind == StripKind::Soundboard)
-    {
-        auto* open = new QPushButton(QStringLiteral("Pads"));
-        open->setToolTip(QStringLiteral("Open the soundboard"));
-        connect(open, &QPushButton::clicked, this, &ChannelStrip::openRequested);
-        root->addWidget(open);
-    }
-    else
-    {
-        duckBtn_ = new QPushButton(QStringLiteral("Duck"));
-        duckBtn_->setObjectName(QStringLiteral("Toggle"));
-        duckBtn_->setCheckable(true);
-        duckBtn_->setChecked(ctl_->duckable);
-        duckBtn_->setToolTip(QStringLiteral("Lower this app while you talk"));
-        connect(duckBtn_, &QPushButton::toggled, this, [this](bool on) {
-            ctl_->duckable = on;
-            emit settingsChanged();
-        });
-        root->addWidget(duckBtn_);
-    }
-
-    // ---- On/off ----------------------------------------------------------
-    onBtn_ = new QPushButton;
-    onBtn_->setObjectName(QStringLiteral("Toggle"));
-    onBtn_->setCheckable(true);
-    onBtn_->setChecked(ctl_->enabled);
-    onBtn_->setText(ctl_->enabled ? QStringLiteral("On") : QStringLiteral("Off"));
-    onBtn_->setToolTip(isMic ? QStringLiteral("Turn your mic on or off")
-                     : kind == StripKind::Soundboard ? QStringLiteral("Turn the soundboard on or off")
-                                                      : QStringLiteral("Turn this app on or off"));
-    connect(onBtn_, &QPushButton::toggled, this, [this](bool on) {
-        ctl_->enabled = on;
-        onBtn_->setText(on ? QStringLiteral("On") : QStringLiteral("Off"));
-        setProperty("off", !on);
-        Repolish(this);
-        emit settingsChanged();
-    });
-    root->addWidget(onBtn_);
-
     setProperty("off", !ctl_->enabled);
 }
 
+// The mic's sound menu: one choice of preset for most people, with every
+// individual clean-up option still there under Advanced.
 void ChannelStrip::buildNoiseButton()
 {
     noiseBtn_ = new QToolButton;
@@ -181,71 +317,153 @@ void ChannelStrip::buildNoiseButton()
     noiseBtn_->setCursor(Qt::PointingHandCursor);
 
     auto* menu = new QMenu(noiseBtn_);
+    menu->setToolTipsVisible(true);
 
-    // Noise suppression level.
-    auto* nsTitle = menu->addAction(QStringLiteral("Noise suppression"));
-    nsTitle->setEnabled(false);
-    auto* nsGroup = new QActionGroup(menu);
-    const struct { const char* text; const char* tip; int level; } levels[] = {
-        { "Off",    "Your mic exactly as it sounds", mixcast::NoiseOff },
-        { "Low",    "Takes the edge off fans and hiss (up to 10 dB)", mixcast::NoiseLow },
-        { "Medium", "Clear voice, quiet background (up to 18 dB)", mixcast::NoiseMedium },
-        { "High",   "Loud rooms: removes up to 28 dB of steady noise", mixcast::NoiseHigh },
-    };
-    for (const auto& l : levels)
-    {
-        auto* a = menu->addAction(QString::fromUtf8(l.text));
-        a->setToolTip(QString::fromUtf8(l.tip));
-        a->setCheckable(true);
-        a->setData(l.level);
-        nsGroup->addAction(a);
-        connect(a, &QAction::triggered, this, [this, lvl = l.level] {
-            voice_->noiseLevel = lvl;
-            updateNoiseButton();
-            emit settingsChanged();
-        });
-    }
-
-    // Background gate.
-    menu->addSeparator();
-    auto* gTitle = menu->addAction(QStringLiteral("Silence between words"));
-    gTitle->setEnabled(false);
-    auto* gGroup = new QActionGroup(menu);
-    const struct { const char* text; const char* tip; int mode; } gates[] = {
-        { "Off",        "Mic stays open all the time", mixcast::GateOff },
-        { "Gentle",     "Turns quiet background down between phrases", mixcast::GateGentle },
-        { "Firm",       "Mutes the room between phrases; loud sounds still open it", mixcast::GateFirm },
-        { "Voice only", "Opens only for your voice. Chewing, clicks, taps and bumps stay muted, "
-                        "even loud ones (adds 25 ms delay)", mixcast::GateVoice },
-    };
-    for (const auto& g : gates)
-    {
-        auto* a = menu->addAction(QString::fromUtf8(g.text));
-        a->setToolTip(QString::fromUtf8(g.tip));
-        a->setCheckable(true);
-        a->setData(100 + g.mode);
-        gGroup->addAction(a);
-        connect(a, &QAction::triggered, this, [this, mode = g.mode] {
-            voice_->gateMode = mode;
-            updateNoiseButton();
-            emit settingsChanged();
-        });
-    }
-
-    menu->addSeparator();
-    auto* rumble = menu->addAction(QStringLiteral("Cut low rumble"));
-    rumble->setToolTip(QStringLiteral("Removes desk bumps and low hum below 80 Hz"));
-    rumble->setCheckable(true);
-    rumble->setData(200);
-    connect(rumble, &QAction::toggled, this, [this](bool on) {
-        voice_->rumbleFilter = on;
+    // Applies a change, refreshes the ticks and saves.
+    auto changed = [this] {
         updateNoiseButton();
         emit settingsChanged();
+    };
+    // A checkable item that sets one value (radio-style choices).
+    auto choice = [&](QMenu* m, QActionGroup* group, const char* text, const char* tip, int data,
+                      std::function<void()> apply) {
+        auto* a = m->addAction(QString::fromUtf8(text));
+        a->setToolTip(QString::fromUtf8(tip));
+        a->setCheckable(true);
+        a->setData(data);
+        if (group) group->addAction(a);
+        connect(a, &QAction::triggered, this, [apply, changed] { apply(); changed(); });
+        return a;
+    };
+    // A checkbox item bound to one on/off setting.
+    using Flag = std::atomic<bool> mixcast::VoiceSettings::*;
+    auto toggle = [&](QMenu* m, const char* text, const char* tip, int data, Flag flag) {
+        auto* a = m->addAction(QString::fromUtf8(text));
+        a->setToolTip(QString::fromUtf8(tip));
+        a->setCheckable(true);
+        a->setData(data);
+        connect(a, &QAction::toggled, this, [this, flag, changed](bool on) { (voice_->*flag) = on; changed(); });
+        return a;
+    };
+    auto submenu = [](QMenu* parent, int data) {
+        auto* m = parent->addMenu(QString());
+        m->menuAction()->setData(data);   // its title shows the current setting
+        m->setToolTipsVisible(true);
+        return m;
+    };
+
+    // ---- Presets ----------------------------------------------------------
+    auto* title = menu->addAction(QStringLiteral("Mic sound"));
+    title->setEnabled(false);
+    auto* presets = new QActionGroup(menu);
+    for (int p = 0; p < mixcast::PresetCount; p++)
+    {
+        const auto& d = mixcast::MicPresetInfo(p);
+        choice(menu, presets, d.name, d.blurb, 600 + p, [this, p] { mixcast::ApplyMicPreset(*voice_, p); });
+    }
+
+    // ---- Advanced: every option on its own --------------------------------
+    menu->addSeparator();
+    auto* adv = menu->addMenu(QStringLiteral("Advanced"));
+    adv->setToolTipsVisible(true);
+
+    auto* noise = submenu(adv, 503);
+    auto* nGroup = new QActionGroup(noise);
+    choice(noise, nGroup, "Off",    "Your mic exactly as it sounds", mixcast::NoiseOff,
+           [this] { voice_->noiseLevel = mixcast::NoiseOff; });
+    choice(noise, nGroup, "Low",    "Takes the edge off fans and hiss (up to 10 dB)", mixcast::NoiseLow,
+           [this] { voice_->noiseLevel = mixcast::NoiseLow; });
+    choice(noise, nGroup, "Medium", "Clear voice, quiet background (up to 18 dB)", mixcast::NoiseMedium,
+           [this] { voice_->noiseLevel = mixcast::NoiseMedium; });
+    choice(noise, nGroup, "High",   "Loud rooms: removes up to 28 dB of steady noise", mixcast::NoiseHigh,
+           [this] { voice_->noiseLevel = mixcast::NoiseHigh; });
+
+    auto* gate = submenu(adv, 504);
+    auto* gGroup = new QActionGroup(gate);
+    choice(gate, gGroup, "Off",        "Mic stays open all the time", 100 + mixcast::GateOff,
+           [this] { voice_->gateMode = mixcast::GateOff; });
+    choice(gate, gGroup, "Gentle",     "Turns quiet background down between phrases", 100 + mixcast::GateGentle,
+           [this] { voice_->gateMode = mixcast::GateGentle; });
+    choice(gate, gGroup, "Firm",       "Mutes the room between phrases; loud sounds still open it", 100 + mixcast::GateFirm,
+           [this] { voice_->gateMode = mixcast::GateFirm; });
+    choice(gate, gGroup, "Voice only", "Opens only for your voice. Chewing, clicks, taps and bumps stay muted, "
+                                       "even loud ones (adds 25 ms delay)", 100 + mixcast::GateVoice,
+           [this] { voice_->gateMode = mixcast::GateVoice; });
+
+    toggle(adv, "Cut low rumble", "Removes desk bumps and low hum below 80 Hz", 200,
+           &mixcast::VoiceSettings::rumbleFilter);
+
+    // Radio voice chain (after the clean-up, in broadcast order).
+    auto* radio = submenu(adv, 501);
+    toggle(radio, "De-esser",   "Softens harsh \"s\", \"sh\" and \"t\" sounds", 300, &mixcast::VoiceSettings::deEsser);
+    toggle(radio, "Voice EQ",   "Less mud, more presence and air: clearer on calls", 301, &mixcast::VoiceSettings::voiceEq);
+    toggle(radio, "Compressor", "Evens out quiet and loud words so you're always easy to hear", 302,
+           &mixcast::VoiceSettings::compressor);
+    toggle(radio, "Limiter",    "Stops shouts and laughs from clipping (ceiling \u22121 dB)", 303,
+           &mixcast::VoiceSettings::limiter);
+
+    // Learns your voice (statistics only, no AI; stays on this PC).
+    auto* learn = submenu(adv, 502);
+    auto* lStatus = learn->addAction(QString());
+    lStatus->setEnabled(false);
+    toggle(learn, "Learn my voice",
+           "Learns your pitch, level and voice spectrum while you talk, and keeps adjusting as your voice changes. "
+           "Then only your voice opens \"Voice only\" and ducks apps, the gate sits between your room and your "
+           "voice, and noise is removed harder where your voice never is. Each mic learns separately.",
+           400, &mixcast::VoiceSettings::learnVoice);
+    toggle(learn, "Auto level", "Keeps your voice at a steady level whatever your mic's gain (needs Learn my voice)",
+           401, &mixcast::VoiceSettings::autoLevel);
+    toggle(learn, "Clean while I talk",
+           "Follows your pitch and turns down noise between your voice's harmonics while you speak. "
+           "Works only when the room is noisy, and only on vowels.", 402, &mixcast::VoiceSettings::cleanWhileTalking);
+    toggle(learn, "Remove keyboard && clicks",
+           "Learns what your voice and the sounds around you look like, and cuts keypresses, mouse clicks and "
+           "taps, even while you talk. Starts working after about a minute of talking (needs Learn my voice).",
+           403, &mixcast::VoiceSettings::removeClicks);
+    learn->addSeparator();
+    auto* forget = learn->addAction(QStringLiteral("Forget my voice on this mic\u2026"));
+    forget->setToolTip(QStringLiteral("Clears what MixCast has learned with this mic and starts again"));
+    connect(forget, &QAction::triggered, this, [this] {
+        if (QMessageBox::question(this, QStringLiteral("Forget my voice"),
+                QStringLiteral("Clear everything MixCast has learned about your voice with this mic and start learning again?"))
+            != QMessageBox::Yes) return;
+        voice_->LoadProfile(mixcast::VoiceProfile{});
+        emit settingsChanged();
+    });
+    connect(learn, &QMenu::aboutToShow, this, [this, lStatus] {
+        const mixcast::VoiceProfile p = voice_->CopyProfile();
+        QString text;
+        if (!voice_->learnVoice)
+            text = QStringLiteral("Not learning");
+        else if (!p.Trained())
+            text = QStringLiteral("Learning\u2026 %1% (keep talking)")
+                       .arg(static_cast<int>(100.0f * p.voicedSec / mixcast::VoiceProfile::kTrainedSec));
+        else
+        {
+            float lo = 0.0f, hi = 0.0f;
+            p.PitchRange(lo, hi);
+            text = QStringLiteral("Knows your voice: %1\u2013%2 Hz, %3 min heard")
+                       .arg(std::lround(lo)).arg(std::lround(hi)).arg(std::max(1L, std::lround(p.voicedSec / 60.0f)));
+        }
+        lStatus->setText(text);
     });
 
-    menu->setToolTipsVisible(true);
     noiseBtn_->setMenu(menu);
     updateNoiseButton();
+}
+
+void ChannelStrip::updateFxButton()
+{
+    if (!fxBtn_ || !voice_) return;
+    const int fx = std::clamp(voice_->voiceFx.load(), 0, mixcast::FxCount - 1);
+    if (fx == shownFx_) return;
+    shownFx_ = fx;
+    fxBtn_->setText((fx == mixcast::FxNone ? QStringLiteral("FX") : QString::fromUtf8(mixcast::VoiceFxName(fx)))
+                    + QStringLiteral(" \u25BE"));
+    fxBtn_->setProperty("active", fx != mixcast::FxNone);
+    Repolish(fxBtn_);
+    for (auto* a : fxBtn_->menu()->actions())
+        if (a->data().isValid()) { QSignalBlocker b(a); a->setChecked(a->data().toInt() == fx); }
 }
 
 void ChannelStrip::updateNoiseButton()
@@ -254,32 +472,58 @@ void ChannelStrip::updateNoiseButton()
     const int  level  = std::clamp(voice_->noiseLevel.load(), 0, 3);
     const int  gate   = std::clamp(voice_->gateMode.load(), 0, 3);
     const bool rumble = voice_->rumbleFilter;
-    if (level == shownNoise_ && gate == shownGate_ && rumble == shownRumble_) return;
-    shownNoise_ = level; shownGate_ = gate; shownRumble_ = rumble;
+    const int  flags  = (voice_->deEsser ? 1 : 0) | (voice_->voiceEq ? 2 : 0)
+                      | (voice_->compressor ? 4 : 0) | (voice_->limiter ? 8 : 0)
+                      | (voice_->learnVoice ? 16 : 0) | (voice_->autoLevel ? 32 : 0)
+                      | (voice_->cleanWhileTalking ? 64 : 0) | (voice_->removeClicks ? 128 : 0);
+    if (level == shownNoise_ && gate == shownGate_ && rumble == shownRumble_ && flags == shownPolish_) return;
+    shownNoise_ = level; shownGate_ = gate; shownRumble_ = rumble; shownPolish_ = flags;
 
-    static const char* kNames[] = { "Off", "Low", "Medium", "High" };
-    noiseBtn_->setText(QStringLiteral("Noise: %1  \u25BE").arg(QString::fromUtf8(kNames[level])));
-    noiseBtn_->setToolTip(QStringLiteral("Noise suppression for your mic. Runs on this PC, no AI."));
+    const int preset = mixcast::MatchMicPreset(*voice_);
+    const QString name = preset >= 0 ? QString::fromUtf8(mixcast::MicPresetInfo(preset).name) : QStringLiteral("Custom");
+    noiseBtn_->setText(QStringLiteral("%1 \u25BE").arg(name));
+    noiseBtn_->setToolTip(QStringLiteral("How your mic sounds. Pick a preset, or fine-tune under Advanced.\n"
+                                         "All of it runs on this PC, no AI."));
     noiseBtn_->setProperty("active", level > 0);
     Repolish(noiseBtn_);
 
-    for (auto* a : noiseBtn_->menu()->actions())
+    // Every item, however deep in the submenus.
+    QList<QAction*> actions;
+    std::function<void(QMenu*)> collect = [&](QMenu* m) {
+        for (auto* a : m->actions())
+        {
+            actions << a;
+            if (a->menu()) collect(a->menu());
+        }
+    };
+    collect(noiseBtn_->menu());
+
+    static const char* kNoise[] = { "Off", "Low", "Medium", "High" };
+    static const char* kGate[]  = { "Off", "Gentle", "Firm", "Voice only" };
+    for (auto* a : actions)
     {
         const int d = a->data().isValid() ? a->data().toInt() : -1;
         QSignalBlocker b(a);
-        if (d >= 0 && d < 4)        a->setChecked(d == level);
-        else if (d >= 100 && d < 200) a->setChecked(d - 100 == gate);
-        else if (d == 200)          a->setChecked(rumble);
+        if (d >= 0 && d < 4)               a->setChecked(d == level);
+        else if (d >= 100 && d < 200)      a->setChecked(d - 100 == gate);
+        else if (d == 200)                 a->setChecked(rumble);
+        else if (d >= 300 && d < 304)      a->setChecked((flags & (1 << (d - 300))) != 0);
+        else if (d >= 400 && d < 404)      a->setChecked((flags & (16 << (d - 400))) != 0);
+        else if (d >= 600 && d < 610)      a->setChecked(d - 600 == preset);
+        else if (d == 501)
+        {
+            const int on = (flags & 1) + ((flags >> 1) & 1) + ((flags >> 2) & 1) + ((flags >> 3) & 1);
+            a->setText(on ? QStringLiteral("Radio voice: %1 of 4 on").arg(on) : QStringLiteral("Radio voice: off"));
+        }
+        else if (d == 502) a->setText((flags & 16) ? QStringLiteral("Learns your voice: on") : QStringLiteral("Learns your voice: off"));
+        else if (d == 503) a->setText(QStringLiteral("Noise suppression: %1").arg(QString::fromUtf8(kNoise[level])));
+        else if (d == 504) a->setText(QStringLiteral("Silence between words: %1").arg(QString::fromUtf8(kGate[gate])));
     }
 }
 
 void ChannelStrip::updateDbLabel()
 {
-    const float db = ctl_->gainDb;
-    QString s = (db <= -59.95f) ? QStringLiteral("\u2212\u221E") : QString::number(std::fabs(db), 'f', 1);
-    if (db < -0.05f && db > -59.95f) s.prepend(QChar(0x2212));   // proper minus sign
-    else if (db > 0.05f) s.prepend(QLatin1Char('+'));
-    db_->setText(s + QStringLiteral(" dB"));
+    db_->setText(BigDbText(ctl_->gainDb));
 }
 
 void ChannelStrip::setStatus(const QString& text, bool warn)
@@ -292,24 +536,71 @@ void ChannelStrip::setStatus(const QString& text, bool warn)
     Repolish(status_);
 }
 
+void ChannelStrip::refreshTheme()
+{
+    updateDbLabel();
+    // The built-in icons are drawn in theme colours; app icons are the app's own.
+    if (kind_ == StripKind::Mic)             icon_ = theme::MicIcon();
+    else if (kind_ == StripKind::Soundboard) icon_ = theme::SoundboardIcon();
+    if (iconLbl_ && !icon_.isNull()) iconLbl_->setPixmap(icon_.pixmap(20, 20));
+}
+
+void ChannelStrip::setOutputBAvailable(bool available)
+{
+    if (bBtn_->isEnabled() == available && soloBtn_->isEnabled() == available) return;
+    bBtn_->setEnabled(available);
+    soloBtn_->setEnabled(available);
+    if (!available) bBtn_->setToolTip(QStringLiteral("Choose an output B in the Output strip first"));
+    else            bBtn_->setToolTip(QStringLiteral("Send to output B: your headphones, or a second output like OBS"));
+}
+
+void SaveChannelSettings(QSettings& s, const QString& prefix, const mixcast::SourceControls& c)
+{
+    s.setValue(prefix + QStringLiteral("sendA"),  c.sendA.load());
+    s.setValue(prefix + QStringLiteral("sendB"),  c.sendB.load());
+    s.setValue(prefix + QStringLiteral("bass"),   c.bassDb.load());
+    s.setValue(prefix + QStringLiteral("mid"),    c.midDb.load());
+    s.setValue(prefix + QStringLiteral("treble"), c.trebleDb.load());
+    s.setValue(prefix + QStringLiteral("pan"),    c.pan.load());
+    s.setValue(prefix + QStringLiteral("width"),  c.width.load());
+}
+
+void LoadChannelSettings(QSettings& s, const QString& prefix, mixcast::SourceControls& c)
+{
+    c.sendA    = s.value(prefix + QStringLiteral("sendA"),  true).toBool();
+    c.sendB    = s.value(prefix + QStringLiteral("sendB"),  false).toBool();
+    c.bassDb   = s.value(prefix + QStringLiteral("bass"),   0.0f).toFloat();
+    c.midDb    = s.value(prefix + QStringLiteral("mid"),    0.0f).toFloat();
+    c.trebleDb = s.value(prefix + QStringLiteral("treble"), 0.0f).toFloat();
+    c.pan      = s.value(prefix + QStringLiteral("pan"),    0.0f).toFloat();
+    c.width    = s.value(prefix + QStringLiteral("width"),  1.0f).toFloat();
+}
+
 void ChannelStrip::syncFromControls()
 {
     // Reflect changes made elsewhere (tray menu, settings load).
     const bool on = ctl_->enabled;
     if (onBtn_->isChecked() != on) onBtn_->setChecked(on);   // toggled() updates text/style
 
-    if (duckBtn_ && duckBtn_->isChecked() != ctl_->duckable.load())
-    {
-        QSignalBlocker b(duckBtn_);
-        duckBtn_->setChecked(ctl_->duckable);
-    }
+    // Reflect values set elsewhere (settings load, tray) without echoing them back.
+    auto sync = [](QAbstractButton* b, bool v) { if (b && b->isChecked() != v) { QSignalBlocker k(b); b->setChecked(v); } };
+    sync(duckBtn_, ctl_->duckable);
+    sync(aBtn_, ctl_->sendA);
+    sync(bBtn_, ctl_->sendB);
+    sync(soloBtn_, ctl_->solo);
+    auto syncK = [](QAbstractSlider* k, int v) { if (k && k->value() != v) { QSignalBlocker b(k); k->setValue(v); } };
+    syncK(bassK_,   static_cast<int>(std::lround(ctl_->bassDb.load() * 10)));
+    syncK(midK_,    static_cast<int>(std::lround(ctl_->midDb.load() * 10)));
+    syncK(trebleK_, static_cast<int>(std::lround(ctl_->trebleDb.load() * 10)));
+    syncK(pan_,     static_cast<int>(std::lround(ctl_->pan.load() * 100)));
+    if (pan_) pan_->setWidthValue(ctl_->width);
 }
 
 void ChannelStrip::refreshSoundboard(int sounds, int playing)
 {
     syncFromControls();
     meter_->setLevel(ctl_->peak);
-    if (!ctl_->enabled)      setStatus(QStringLiteral("Off: sounds won't reach Discord"), true);
+    if (!ctl_->enabled)      setStatus(QStringLiteral("Off"), true);
     else if (playing > 0)    setStatus(playing == 1 ? QStringLiteral("Playing 1 sound")
                                                     : QStringLiteral("Playing %1 sounds").arg(playing), false);
     else if (sounds == 0)    setStatus(QStringLiteral("No sounds yet"), false);
@@ -327,19 +618,27 @@ void ChannelStrip::refresh(const mixcast::SourceStatus& st, bool talking)
     {
         const bool lit = talking && ctl_->enabled && st.state == SourceState::Running;
         tally_->setLit(lit);
-        if (talking_->property("lit").toBool() != lit)
-        {
-            talking_->setProperty("lit", lit);
-            Repolish(talking_);
-        }
 
         updateNoiseButton();
+        updateFxButton();
+        if (scope_)
+        {
+            static_assert(CleanupScope::kBands == mixcast::VoiceSettings::kScopeBands, "scope bands");
+            float in[CleanupScope::kBands], out[CleanupScope::kBands];
+            const bool live = ctl_->enabled && st.state == SourceState::Running;
+            for (int b = 0; b < CleanupScope::kBands; b++)
+            {
+                in[b]  = live ? voice_->scopeInDb[b].load(std::memory_order_relaxed)  : -120.0f;
+                out[b] = live ? voice_->scopeOutDb[b].load(std::memory_order_relaxed) : -120.0f;
+            }
+            scope_->setBands(in, out, live ? voice_->removedDb.load() : 0.0f);
+        }
         if (st.state == SourceState::Failed)
-            setStatus(QStringLiteral("Unavailable. Pick another mic above."), true);
+            setStatus(QStringLiteral("Unavailable"), true);
         else if (!ctl_->enabled)
             setStatus(QStringLiteral("Muted"), true);
         else if (voice_ && voice_->noiseLevel > 0)
-            setStatus(QStringLiteral("Your voice, background filtered"), false);
+            setStatus(QStringLiteral("Cleaning up"), false);
         else
             setStatus(QStringLiteral("Your voice"), false);
         return;
@@ -348,15 +647,15 @@ void ChannelStrip::refresh(const mixcast::SourceStatus& st, bool talking)
     switch (st.state)
     {
     case SourceState::WaitingForApp:
-        setStatus(QStringLiteral("Joins when the app opens"), false);
+        setStatus(QStringLiteral("Waiting for the app"), false);
         break;
     case SourceState::Failed:
-        setStatus(QStringLiteral("Can't capture this app."), true);
+        setStatus(QStringLiteral("Can't capture"), true);
         status_->setToolTip(QString::fromStdString(st.error));
         break;
     case SourceState::Running:
-        setStatus(ctl_->duckable ? QStringLiteral("Lowers while you talk")
-                                 : QStringLiteral("Stays at full level"), false);
+        setStatus(ctl_->duckable ? QStringLiteral("Ducks when you talk")
+                                 : QStringLiteral("Full level"), false);
         break;
     }
 }

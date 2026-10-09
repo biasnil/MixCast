@@ -131,7 +131,7 @@ ClipId Soundboard::AddClip(std::shared_ptr<const Clip> clip, float gainDb)
 {
     std::lock_guard<std::mutex> lk(mu_);
     const ClipId id = nextId_++;
-    clips_[id] = Entry{ std::move(clip), DbToLin(gainDb) };
+    clips_[id] = Entry{ std::move(clip), DbToLin(gainDb), false, kStopFadePerFrame };
     return id;
 }
 
@@ -157,6 +157,16 @@ void Soundboard::SetClipGain(ClipId id, float gainDb)
     for (auto& v : voices_) if (v.id == id) v.gain = it->second.gain;
 }
 
+void Soundboard::SetClipOptions(ClipId id, bool loop, float fadeOutSec)
+{
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = clips_.find(id);
+    if (it == clips_.end()) return;
+    it->second.loop = loop;
+    it->second.fadeStep = fadeOutSec > 0.02f ? 1.0f / (fadeOutSec * kSampleRate) : kStopFadePerFrame;
+    for (auto& v : voices_) if (v.id == id && !v.stopping) v.loop = loop;
+}
+
 void Soundboard::Play(ClipId id)
 {
     std::lock_guard<std::mutex> lk(mu_);
@@ -164,16 +174,23 @@ void Soundboard::Play(ClipId id)
     if (it == clips_.end()) return;
 
     for (auto& v : voices_)
-        if (v.id == id || oneAtATime) v.stopping = true;   // restart this one / stop the rest
+        if (v.id == id || oneAtATime)   // restart this one / stop the rest: always quickly
+        {
+            v.stopping = true;
+            v.fadeStep = kStopFadePerFrame;
+        }
 
     if (voices_.size() < voices_.capacity())                // never allocate under the render lock
-        voices_.push_back(Voice{ id, it->second.clip, 0, it->second.gain, 1.0f, false });
+        voices_.push_back(Voice{ id, it->second.clip, 0, it->second.gain, 1.0f, false, it->second.loop, 0.0f });
 }
 
 void Soundboard::Stop(ClipId id)
 {
     std::lock_guard<std::mutex> lk(mu_);
-    for (auto& v : voices_) if (v.id == id) v.stopping = true;
+    auto it = clips_.find(id);
+    const float step = it != clips_.end() ? it->second.fadeStep : kStopFadePerFrame;
+    for (auto& v : voices_)
+        if (v.id == id && !v.stopping) { v.stopping = true; v.fadeStep = step; }
 }
 
 void Soundboard::Toggle(ClipId id)
@@ -189,7 +206,13 @@ void Soundboard::Toggle(ClipId id)
 void Soundboard::StopAll()
 {
     std::lock_guard<std::mutex> lk(mu_);
-    for (auto& v : voices_) v.stopping = true;
+    for (auto& v : voices_)
+    {
+        if (v.stopping) continue;
+        auto it = clips_.find(v.id);
+        v.stopping = true;
+        v.fadeStep = it != clips_.end() ? it->second.fadeStep : kStopFadePerFrame;
+    }
 }
 
 std::vector<ClipPlayback> Soundboard::Playing() const
@@ -244,11 +267,16 @@ void Soundboard::Render(float* out, size_t frames)
         for (auto& v : voices_)
         {
             const int16_t* src = v.clip->samples.data();
-            for (size_t f = 0; f < frames && v.pos < v.clip->frames; f++, v.pos++)
+            for (size_t f = 0; f < frames; f++, v.pos++)
             {
+                if (v.pos >= v.clip->frames)
+                {
+                    if (!v.loop || v.clip->frames == 0) break;
+                    v.pos = 0;   // loop: straight back to the start (also while fading out)
+                }
                 if (v.stopping)
                 {
-                    v.fade -= kStopFadePerFrame;
+                    v.fade -= v.fadeStep > 0.0f ? v.fadeStep : kStopFadePerFrame;
                     if (v.fade <= 0.0f) { v.fade = 0.0f; break; }
                 }
                 const float g = v.gain * v.fade * (1.0f / 32768.0f);
@@ -261,7 +289,8 @@ void Soundboard::Render(float* out, size_t frames)
         for (size_t i = 0; i < voices_.size();)
         {
             Voice& v = voices_[i];
-            if (v.pos >= v.clip->frames || v.fade <= 0.0f)
+            const bool ended = v.pos >= v.clip->frames && !(v.loop && v.clip->frames > 0);
+            if (ended || v.fade <= 0.0f)
             {
                 if (retired_.size() < retired_.capacity()) retired_.push_back(std::move(v.clip));
                 voices_[i] = std::move(voices_.back());

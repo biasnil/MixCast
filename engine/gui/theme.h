@@ -1,7 +1,14 @@
 // MixCast GUI - look & feel.
 //
-// Concept: a broadcast desk. Graphite chassis, printed warm-white legends,
-// amber LED ladders, and a red tally lamp that lights when you're talking.
+// Concept: a modern software mixing console. One panel with each channel as
+// a column: a section header, a dark info panel, a big gain readout, an LED
+// meter, outlined buttons and a fat pill fader with a round knob. One accent
+// colour for everything that's "on" or carrying signal; coral for the
+// talking lamp, boost above 0 dB and warnings, in every theme.
+//
+// Colours come from the current theme's palette. SetTheme() switches them
+// at once: the stylesheet is rebuilt from the palette, and the painted
+// controls read the colours below every time they paint.
 #pragma once
 
 #include <QColor>
@@ -11,16 +18,28 @@
 
 namespace theme {
 
-inline const QColor Chassis   {0x20, 0x24, 0x2B};   // window background
-inline const QColor Panel     {0x2A, 0x30, 0x38};   // channel strips
-inline const QColor PanelEdge {0x3A, 0x42, 0x4D};   // strip borders, buttons
-inline const QColor Slot      {0x15, 0x18, 0x1D};   // fader slot, meter well
-inline const QColor Legend    {0xE6, 0xE1, 0xD6};   // main text
-inline const QColor Muted     {0x8C, 0x93, 0x9C};   // secondary text
-inline const QColor Amber     {0xF2, 0xA9, 0x3B};   // signal, active controls
-inline const QColor AmberHot  {0xFF, 0xD2, 0x8A};   // meter near the top
-inline const QColor Tally     {0xE5, 0x48, 0x4D};   // talking / clipping
-inline const QColor LedOff    {0x1C, 0x20, 0x26};   // unlit LED segment
+enum ThemeId : int { ThemeOcean = 0, ThemeClassic, ThemeSakura, ThemeEmber, ThemeLight, ThemeCount };
+
+struct Palette
+{
+    const char* name;
+    QColor chassis, header, panel, panelHi, well, slot, wellEdge, wellLip;
+    QColor divider, border, line, outlineDim, outline, raised, pillBg;
+    QColor knobLight, knobDark, rim, keyTop, keyBottom;
+    QColor legend, textSoft, textDim, muted, faint;
+    QColor accent, accentHot, accentHover, accentPressed, accentDim, accentDeep, onAccent;
+    QColor warm, onWarm, tally, tallySoft, tallyDeep, liveBg, bannerBg, liveOff, ledOff;
+    QColor strong;   // hover text: white on dark themes, near-black on Light
+};
+
+const Palette& ThemePalette(int id);
+int  CurrentTheme();
+void SetTheme(int id);   // then re-apply StyleSheet() and repaint
+
+// Shorthands for painted controls: always the current theme's colours.
+inline QColor Chassis, Panel, PanelHi, PanelEdge, Slot, WellEdge, WellLip;
+inline QColor Legend, Muted, Accent, AccentHot, AccentDim, OnAccent, Warm, Tally, LedOff;
+inline QColor KnobLight, KnobDark, Rim, KeyTop, KeyBottom;
 
 QFont   Font(qreal pointSize, int weight = QFont::Normal);
 QString StyleSheet();
